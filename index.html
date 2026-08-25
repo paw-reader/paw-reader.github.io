@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>paw-reader</title>
+  <link rel="stylesheet" href="style.css">
+  </head>
+<body>
+  <div id="top-progress"></div>
+  <!-- Navigation/Header -->
+  <div id="nav" class="hidden">
+    <button id="nav-back" class="hidden" style="position: fixed; top: 20px; left: 20px; z-index: 1000;">⬅️</button>
+    <button id="nav-home" style="position: fixed; top: 20px; right: 20px; z-index: 1000;">🏠</button>
+  </div>
+
+  <!-- Welcome Screen -->
+  <div id="welcome-screen" class="view active">
+    <h1>Welcome to Paw Reader!</h1>
+    <p>What would you like to explore today?</p>
+    <div class="welcome-buttons">
+      <button id="btn-latest">Latest Posts</button>
+      <button id="btn-creators">Creator List</button>
+    </div>
+    
+    <div class="nav-tips" style="margin-top: 40px; padding: 20px; background: rgba(255, 255, 255, 0.05); border-radius: 12px; max-width: 400px; text-align: center; color: #ccc;">
+      <h3 style="margin-top: 0; color: #fff; font-size: 1.1rem;">💡 Navigation Tips</h3>
+      <p style="margin: 10px 0 0; font-size: 0.95rem; line-height: 1.5;">
+        <strong>Keyboard:</strong> Use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or <strong>Arrow Keys</strong> to seamlessly flip through posts and media.<br><br>
+        <strong>Touch:</strong> Swipe up/down for posts, and left/right for galleries.
+      </p>
+    </div>
+  </div>
+
+  <!-- Creators List View -->
+  <div id="creators-view" class="view hidden">
+    <h2>Creators</h2>
+    <div class="creators-controls">
+      <input type="text" id="creator-search" placeholder="Search creators...">
+      <select id="creator-sort">
+        <option value="followers-desc">Followers (Highest to Lowest)</option>
+        <option value="followers-asc">Followers (Lowest to Highest)</option>
+        <option value="name-asc">A-Z</option>
+        <option value="name-desc">Z-A</option>
+      </select>
+    </div>
+    <div id="creators-loading" class="loading active">Loading creators...</div>
+    <div id="creators-list" class="creators-grid"></div>
+    <div id="creator-pagination" class="pagination"></div>
+  </div>
+
+  <!-- Feed View -->
+  <div id="feed-view" class="view hidden">
+    <div id="feed" class="feed vertical">
+      <!-- Posts will be injected here -->
+    </div>
+    <div id="feed-loading" class="loading">Loading...</div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
