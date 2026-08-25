@@ -243,6 +243,10 @@ async function loadCreators() {
     const res = await fetch(`${PROXY_URL}/${currentSite}/api/v1/creators`);
     if (!res.ok) throw new Error('Failed to fetch creators: ' + res.status + ' ' + res.statusText);
     let rawCreators = await res.json();
+    // cum.st wraps creators in { total, creators: [...] }
+    if (!Array.isArray(rawCreators) && rawCreators.creators) {
+      rawCreators = rawCreators.creators;
+    }
     const uniqueCreators = new Map();
     rawCreators.forEach(c => {
       const key = c.name.toLowerCase().trim();
@@ -824,7 +828,11 @@ async function fetchPosts() {
   try {
     const res = await fetch(`${currentFeedEndpoint}?o=${offset}`);
     if (!res.ok) throw new Error('Failed to fetch: ' + res.status + ' ' + res.statusText);
-    const posts = await res.json();
+    let posts = await res.json();
+    // kemono/cum.st wrap posts in { posts: [...] }
+    if (!Array.isArray(posts) && posts.posts) {
+      posts = posts.posts;
+    }
     
     if (!Array.isArray(posts) || posts.length === 0) {
       hasMore = false;

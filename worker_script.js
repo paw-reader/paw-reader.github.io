@@ -28,10 +28,10 @@ export default {
       fileDomain = 'https://file.pawchive.pw';
     } else if (sitePrefix === 'kemono') {
       domain = 'https://kemono.cr';
-      fileDomain = 'https://kemono.cr'; // Modify if Kemono uses a different CDN subdomain
+      fileDomain = 'https://kemono.cr';
     } else if (sitePrefix === 'cum') {
       domain = 'https://cum.st';
-      fileDomain = 'https://cum.st'; // Modify if Coomer uses a different CDN subdomain
+      fileDomain = 'https://cum.st';
     } else {
       return new Response('Paw Proxy: Unknown site prefix', { status: 404 });
     }
@@ -52,6 +52,11 @@ export default {
     headers.delete('origin');
     headers.delete('referer');
     headers.set('Referer', domain + '/');
+    
+    // Kemono and Coomer require this header to bypass DDOS-Guard
+    if (sitePrefix === 'kemono' || sitePrefix === 'cum') {
+      headers.set('Accept', 'text/css');
+    }
     
     const response = await fetch(targetUrl, {
       method: request.method,
