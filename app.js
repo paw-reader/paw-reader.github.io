@@ -319,6 +319,7 @@ function renderCreatorsPage() {
     img.className = 'creator-image';
     img.src = `${PROXY_URL}/${currentSite}/icons/${creator.service}/${creator.id}`;
     img.loading = 'lazy';
+    img.onerror = () => { img.style.display = 'none'; };
     
     const name = document.createElement('div');
     name.className = 'creator-name';

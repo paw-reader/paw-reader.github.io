@@ -58,9 +58,11 @@ export default {
       headers.set('Accept', 'text/css');
     }
     
+    // Follow redirects (kemono icons redirect to img.kemono.cr)
     const response = await fetch(targetUrl, {
       method: request.method,
-      headers: headers
+      headers: headers,
+      redirect: 'follow'
     });
 
     const newResponse = new Response(response.body, response);
