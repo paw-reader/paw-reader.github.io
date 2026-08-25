@@ -237,7 +237,7 @@ async function loadCreators() {
   if (allCreators.length > 0 && loadedCreatorsSite === currentSite) return;
   loadedCreatorsSite = currentSite;
   allCreators = [];
-  creatorsGrid.innerHTML = '';
+  creatorsList.innerHTML = '';
   creatorsLoading.classList.add('active'); startProgress();
   try {
     const res = await fetch(`${PROXY_URL}/${currentSite}/api/v1/creators`);
