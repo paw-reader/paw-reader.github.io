@@ -1426,7 +1426,7 @@ async function fetchPosts() {
             }
             if (firstNode) {
               const firstLine = (firstNode.textContent || '').trim();
-              post.title = firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine;
+              post.title = (firstNode.textContent || '').trim();
               // Remove the first paragraph from content so it doesn't duplicate in description
               firstNode.remove();
               post.content = tmp.innerHTML.trim();
