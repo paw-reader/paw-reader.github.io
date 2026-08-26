@@ -55,6 +55,13 @@ function getServiceColor(service) {
   if (s === 'fanbox') return '#0096FA';
   if (s === 'patreon') return '#F96854';
   if (s === 'discord') return '#5865F2';
+  if (s === 'onlyfans') return '#00AEEF';
+  if (s === 'fansly') return '#2699F7';
+  if (s === 'subscribestar') return '#009688';
+  if (s === 'dlsite') return '#052A83';
+  if (s === 'gumroad') return '#FF90E8';
+  if (s === 'boosty') return 'linear-gradient(to bottom, #EF7829, #EC5B2B)';
+  if (s === 'fantia') return 'linear-gradient(to right, #8CC13F, #E1097F, #8D2680, #00A098, #383877, #F05B26)';
   return '#222';
 }
 
@@ -739,7 +746,7 @@ function buildCreatorCard(creator, checkedServices = []) {
   
   const initialPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
   
-  card.style.backgroundColor = getServiceColor(initialPlatform.service);
+  card.style.background = getServiceColor(initialPlatform.service);
   
   const img = document.createElement('img');
   img.className = 'creator-image';
@@ -788,7 +795,7 @@ function buildCreatorCard(creator, checkedServices = []) {
       img.style.display = 'block';
       name.textContent = newPlatform.name;
       service.textContent = newPlatform.service;
-      card.style.backgroundColor = getServiceColor(newPlatform.service);
+      card.style.background = getServiceColor(newPlatform.service);
     });
     card.appendChild(switchBtn);
   }
