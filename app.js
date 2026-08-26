@@ -299,7 +299,7 @@ function updateNavTabs(creator) {
       fetch(`${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}?limit=1`)
         .then(res => res.json())
         .then(data => {
-          const arr = data.posts || (Array.isArray(data) ? data : []);
+          const arr = data.posts || data.announcements || data.dms || (Array.isArray(data) ? data : []);
           if (arr.length > 0) {
             btn.style.display = '';
           }
@@ -1265,9 +1265,9 @@ async function fetchPosts() {
     const res = await fetch(`${currentFeedEndpoint}?o=${offset}`);
     if (!res.ok) throw new Error('Failed to fetch: ' + res.status + ' ' + res.statusText);
     let posts = await res.json();
-    // kemono/cum.st wrap posts in { posts: [...] }
-    if (!Array.isArray(posts) && posts.posts) {
-      posts = posts.posts;
+    // kemono/cum.st wrap feeds under their respective keys
+    if (!Array.isArray(posts)) {
+      posts = posts.posts || posts.announcements || posts.dms || [];
     }
     
     if (!Array.isArray(posts) || posts.length === 0) {
