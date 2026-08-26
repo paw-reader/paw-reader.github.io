@@ -769,6 +769,7 @@ function createPostCard(post) {
   const serviceIcon = document.createElement('img');
   serviceIcon.src = `icons/${post.service}.svg`;
   serviceIcon.style.objectFit = 'contain';
+  serviceIcon.style.flexShrink = '0';
   
   if (post.service === 'fantia') {
     serviceIcon.style.width = '50px';
