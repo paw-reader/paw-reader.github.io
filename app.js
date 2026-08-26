@@ -1283,13 +1283,19 @@ async function fetchPosts() {
   feedLoading.classList.add('active'); startProgress();
 
   try {
-    const res = await fetch(`${currentFeedEndpoint}?o=${offset}`);
+    // Announcements don't paginate — they always return all items at once
+    const isAnnouncements = currentFeedEndpoint.includes('/announcements');
+    const url = isAnnouncements ? currentFeedEndpoint : `${currentFeedEndpoint}?o=${offset}`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch: ' + res.status + ' ' + res.statusText);
     let posts = await res.json();
     // kemono/cum.st wrap feeds under their respective keys
     if (!Array.isArray(posts)) {
       posts = posts.posts || posts.announcements || posts.dms || [];
     }
+    
+    // Announcements return everything at once — disable further pagination
+    if (isAnnouncements) hasMore = false;
     
     if (!Array.isArray(posts) || posts.length === 0) {
       hasMore = false;
@@ -1300,6 +1306,13 @@ async function fetchPosts() {
       }
 
       posts.forEach(post => {
+        // Normalize announcement fields: they use user_id instead of user, and have no title
+        if (!post.user && post.user_id) post.user = post.user_id;
+        if (!post.title && post.added) {
+          const d = new Date(post.added);
+          post.title = `Announcement — ${d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`;
+        }
+
         // Normalize Moxxy API (cum.st) to Kemono API format
         if (currentSite === 'cum') {
           post.user = post.user || post.creatorId;
