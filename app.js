@@ -1,3 +1,17 @@
+
+function showMediaUnavailableWarning(container, type = 'media') {
+  const siteName = currentSite.charAt(0).toUpperCase() + currentSite.slice(1);
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; gap: 10px; padding: 20px; text-align: center; background: rgba(0,0,0,0.5); border-radius: 12px; box-sizing: border-box;">
+      <span style="color: #ffb86c; font-size: 2rem;">⚠️</span>
+      <span style="color: #ffb86c; font-size: 1.2rem; font-weight: bold;">${type === 'zip' ? 'Archive' : 'Media'} Unavailable</span>
+      <span style="color: #ccc; font-size: 0.95rem; font-weight: normal; max-width: 250px; line-height: 1.4;">
+        This file has not yet been imported to ${siteName}, or it has been removed.
+      </span>
+    </div>
+  `;
+}
+
 const PROXY_URL = 'https://paw-worker.syrupderg.workers.dev';
 let currentSite = 'pawchive';
 
@@ -1021,6 +1035,7 @@ async function loadMediaWithProgress(item) {
     let cachedBlob = null;
     fetch(url)
       .then(async res => {
+        if (!res.ok) throw new Error('Failed');
         const size = res.headers.get('content-length');
         const sizeStr = size ? formatBytes(parseInt(size, 10)) : 'Unknown size';
         cachedBlob = await res.blob();
@@ -1057,7 +1072,10 @@ async function loadMediaWithProgress(item) {
         zipBtn.innerHTML = `<div style="text-align:center; margin-bottom:5px;">📦 Open ZIP Gallery</div><div style="font-size:0.85rem; opacity:0.8; font-weight:normal; text-align:left; display:inline-block; margin:auto; font-family:monospace;">${filename} <span style="opacity:0.6">(${headerSize})</span>${contentStr}</div>`;
       })
       .catch(() => {
-        zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Ready</small>`;
+        item.innerHTML = '';
+        item.appendChild(progressOverlay);
+        progressOverlay.style.display = 'flex';
+        showMediaUnavailableWarning(progressOverlay, type);
       });
     
     zipBtn.addEventListener('click', (e) => {
@@ -1083,7 +1101,7 @@ async function loadMediaWithProgress(item) {
     video.playsInline = true;
     video.controls = true;
     video.addEventListener('error', () => {
-      progressOverlay.innerHTML = '<span style="color:#ff4444">Video Error</span>';
+      showMediaUnavailableWarning(progressOverlay, type);
     });
     
     video.addEventListener('canplay', () => {
@@ -1163,18 +1181,7 @@ async function loadMediaWithProgress(item) {
       const path = item.dataset.path;
       
       // Helper function to show the warning if the thumbnail also fails
-      const showWarning = () => {
-        const siteName = currentSite.charAt(0).toUpperCase() + currentSite.slice(1);
-        progressOverlay.innerHTML = `
-          <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px; text-align: center; background: rgba(0,0,0,0.5); border-radius: 12px;">
-            <span style="color: #ffb86c; font-size: 2rem;">⚠️</span>
-            <span style="color: #ffb86c; font-size: 1.2rem; font-weight: bold;">Media Unavailable</span>
-            <span style="color: #ccc; font-size: 0.95rem; font-weight: normal; max-width: 250px; line-height: 1.4;">
-              This file has not yet been imported to ${siteName}, or it has been removed.
-            </span>
-          </div>
-        `;
-      };
+      const showWarning = () => showMediaUnavailableWarning(progressOverlay, type);
 
       // Attempt to load a thumbnail fallback directly from the native CDNs
       if (path && (currentSite === 'pawchive' || currentSite === 'kemono')) {
@@ -1224,7 +1231,7 @@ async function loadMediaWithProgress(item) {
     const img = document.createElement('img');
     img.className = 'post-media';
     img.onload = () => { progressOverlay.style.display = 'none'; };
-    img.onerror = () => { progressOverlay.innerHTML = '<span style="color:#ff4444">Image Error</span>'; };
+    img.onerror = () => { showMediaUnavailableWarning(progressOverlay, type); };
     img.src = url;
     item.appendChild(img);
   }
@@ -2096,6 +2103,7 @@ async function openZipGallery(zipUrl, filename, cachedBlob = null) {
     console.error(err);
     zipTitle.textContent = 'Error';
     zipIndicator.textContent = '';
-    zipContent.innerHTML = '<div style="color:#ff4444; margin: auto;">Failed to load ZIP archive.</div>';
+    zipContent.innerHTML = '';
+    showMediaUnavailableWarning(zipContent, 'zip');
   }
 }
