@@ -1413,20 +1413,18 @@ async function fetchPosts() {
             if (match) post.user = match[1];
           }
           post.authorName = post.creatorName;
-          // Keep the full HTML caption as the description
-          post.content = post.captionHtml || post.caption || post.content || '';
+          // cum.st uses captionHtml for posts and contentHtml for DMs
+          post.content = post.captionHtml || post.contentHtml || post.caption || post.content || '';
           if (!post.title && post.content) {
             // Derive a short title from the first text line of the caption
             const tmp = document.createElement('div');
             tmp.innerHTML = post.content;
-            // Use only the first non-empty text node/paragraph as title
             let firstLine = '';
             for (const node of tmp.childNodes) {
               const text = (node.textContent || '').trim();
               if (text) { firstLine = text; break; }
             }
             if (!firstLine) firstLine = (tmp.textContent || '').trim();
-            // Truncate to a reasonable title length
             post.title = firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine;
             // Leave post.content intact so the description still shows below
           }
