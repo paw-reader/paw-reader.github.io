@@ -320,7 +320,9 @@ function renderCreatorsPage() {
     
     const img = document.createElement('img');
     img.className = 'creator-image';
-    if (currentSite !== 'cum') {
+    if (currentSite === 'cum') {
+      img.src = `https://img.cum.st/creator/${creator.service}/${creator.id}/avatar.webp`;
+    } else {
       img.src = `${PROXY_URL}/${currentSite}/icons/${creator.service}/${creator.id}`;
     }
     img.loading = 'lazy';
@@ -352,7 +354,9 @@ function renderCreatorsPage() {
         currentPlatformIndex = (currentPlatformIndex + 1) % creator.allPlatforms.length;
         const newPlatform = creator.allPlatforms[currentPlatformIndex];
         
-        if (currentSite !== 'cum') {
+        if (currentSite === 'cum') {
+          img.src = `https://img.cum.st/creator/${newPlatform.service}/${newPlatform.id}/avatar.webp`;
+        } else {
           img.src = `${PROXY_URL}/${currentSite}/icons/${newPlatform.service}/${newPlatform.id}`;
         }
         service.textContent = newPlatform.service;
@@ -457,7 +461,7 @@ function getMediaUrl(path) {
     }
     return `https://img.kemono.cr/thumbnail/data${path}`;
   } else if (currentSite === 'cum') {
-    return `https://cum.st/data${path}`;
+    return `https://e1.cum.st${path}`;
   }
   return `${PROXY_URL}/${currentSite}/file/data${path}`;
 }
@@ -880,13 +884,20 @@ async function fetchPosts() {
             const match = currentFeedEndpoint.match(/\/user\/([^\/]+)/);
             if (match) post.user = match[1];
           }
+          // Map Moxxy storageKeys to the correct e1.cum.st path format
           post.content = post.content || post.captionHtml || '';
+          if (!post.file && post.attachments && post.attachments.length > 0) {
+             const first = post.attachments.find(a => a.storageKey && a.variants && a.variants.length > 0);
+             if (first) {
+                 post.file = { path: `/media/${first.storageKey}/${first.variants[0].name}` };
+             }
+          }
           
-          // Moxxy doesn't use file paths and their CDN routing for storageKeys is unknown/down.
-          // Force media to be empty to prevent the browser from attempting to load 404 HTML pages 
-          // as images, which causes massive ORB and Network error spam in the console.
-          post.file = null;
-          post.attachments = [];
+          if (post.attachments && post.attachments.length > 0) {
+             post.attachments = post.attachments.filter(a => a.storageKey && a.variants && a.variants.length > 0).map(att => {
+                 return { path: `/media/${att.storageKey}/${att.variants[0].name}` };
+             });
+          }
         }
 
         const card = createPostCard(post);
