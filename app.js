@@ -234,6 +234,7 @@ function updateNavTabs(creator) {
   
    tabs.forEach((tab, index) => {
     const btn = document.createElement('button');
+    btn.style.flexShrink = '0';
     btn.textContent = tab;
     if (index === 0) btn.style.background = 'rgba(0, 123, 255, 0.6)';
     
