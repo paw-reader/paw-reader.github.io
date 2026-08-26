@@ -133,7 +133,24 @@ const btnCreators = document.getElementById('btn-creators');
 const siteSelector = document.getElementById('site-selector');
 if (siteSelector) {
   currentSite = siteSelector.value;
-  siteSelector.addEventListener('change', (e) => { currentSite = e.target.value; });
+  
+  function updateSiteSpecificUI() {
+    const contentFilter = document.getElementById('creator-content-filter');
+    if (contentFilter) {
+      if (currentSite === 'cum') {
+        contentFilter.style.display = '';
+      } else {
+        contentFilter.style.display = 'none';
+        contentFilter.value = 'all'; // Default to all for Kemono/Pawchive
+      }
+    }
+  }
+  
+  updateSiteSpecificUI();
+  siteSelector.addEventListener('change', (e) => { 
+    currentSite = e.target.value; 
+    updateSiteSpecificUI();
+  });
 }
 
 
