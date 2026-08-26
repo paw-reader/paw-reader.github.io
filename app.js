@@ -254,12 +254,26 @@ async function loadCreators() {
   creatorsList.innerHTML = '';
   creatorsLoading.classList.add('active'); startProgress();
   try {
-    const res = await fetch(`${PROXY_URL}/${currentSite}/api/v1/creators`);
-    if (!res.ok) throw new Error('Failed to fetch creators: ' + res.status + ' ' + res.statusText);
-    let rawCreators = await res.json();
-    // cum.st wraps creators in { total, creators: [...] }
-    if (!Array.isArray(rawCreators) && rawCreators.creators) {
-      rawCreators = rawCreators.creators;
+    let rawCreators = [];
+    if (currentSite === 'cum') {
+      // Moxxy API paginates the creators list to 50 items, so standard fetch misses other services.
+      // Explicitly fetch the top creators for known services to populate the client-side filter and grid.
+      const moxxyServices = ['onlyfans', 'fansly', 'patreon', 'fantia', 'fanbox', 'subscribestar'];
+      for (const s of moxxyServices) {
+        try {
+          const res = await fetch(`${PROXY_URL}/${currentSite}/api/v1/creators?service=${s}&limit=50`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.creators) rawCreators.push(...data.creators);
+          }
+        } catch (e) {
+          console.warn(`Failed to fetch ${s} creators for cum.st`, e);
+        }
+      }
+    } else {
+      const res = await fetch(`${PROXY_URL}/${currentSite}/api/v1/creators`);
+      if (!res.ok) throw new Error('Failed to fetch creators: ' + res.status + ' ' + res.statusText);
+      rawCreators = await res.json();
     }
     const uniqueCreators = new Map();
     rawCreators.forEach(c => {
