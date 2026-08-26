@@ -139,6 +139,7 @@ if (siteSelector) {
     if (contentFilter) {
       if (currentSite === 'cum') {
         contentFilter.style.display = '';
+        contentFilter.value = 'content'; // Default to with content for cum.st
       } else {
         contentFilter.style.display = 'none';
         contentFilter.value = 'all'; // Default to all for Kemono/Pawchive
