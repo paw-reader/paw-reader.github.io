@@ -131,7 +131,10 @@ const creatorsLoading = document.getElementById('creators-loading');
 const btnLatest = document.getElementById('btn-latest');
 const btnCreators = document.getElementById('btn-creators');
 const siteSelector = document.getElementById('site-selector');
-siteSelector.addEventListener('change', (e) => { currentSite = e.target.value; });
+if (siteSelector) {
+  currentSite = siteSelector.value;
+  siteSelector.addEventListener('change', (e) => { currentSite = e.target.value; });
+}
 
 
 // State
