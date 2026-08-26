@@ -172,35 +172,63 @@ if (siteSelector) {
         contentFilter.style.display = 'none';
         contentFilter.value = 'all'; // Default to all for Kemono/Pawchive
       }
-    }
-    
-    const navTabs = document.getElementById('nav-tabs');
-    if (navTabs) {
-      navTabs.innerHTML = '';
-      let tabs = [];
-      if (currentSite === 'kemono' || currentSite === 'pawchive') {
-        tabs = ['Posts', 'Announcements', 'Tags', 'DMs', 'Linked Accounts', 'Similar Artists'];
-      } else if (currentSite === 'cum') {
-        tabs = ['Posts', 'DMs', 'Similar Creators'];
-      }
-      
-      tabs.forEach((tab, index) => {
-        const btn = document.createElement('button');
-        btn.textContent = tab;
-        if (index === 0) btn.style.background = 'rgba(0, 123, 255, 0.6)'; // Highlight first tab
-        btn.addEventListener('click', () => {
-          Array.from(navTabs.children).forEach(c => c.style.background = '');
-          btn.style.background = 'rgba(0, 123, 255, 0.6)';
-        });
-        navTabs.appendChild(btn);
-      });
-    }
   }
   
   updateSiteSpecificUI();
   siteSelector.addEventListener('change', (e) => { 
     currentSite = e.target.value; 
     updateSiteSpecificUI();
+  });
+}
+
+function updateNavTabs(creator) {
+  const navTabs = document.getElementById('nav-tabs');
+  if (!navTabs) return;
+  navTabs.innerHTML = '';
+  
+  if (!creator) return;
+  
+  let tabs = [];
+  if (currentSite === 'kemono' || currentSite === 'pawchive') {
+    tabs = ['Posts', 'Announcements', 'Tags', 'DMs', 'Linked Accounts', 'Similar Artists'];
+  } else if (currentSite === 'cum') {
+    tabs = ['Posts', 'DMs', 'Similar Creators'];
+  }
+  
+  // Filter tabs based on creator metadata if available
+  tabs = tabs.filter(tab => {
+    if (tab === 'DMs' && creator.dmCount === 0) return false;
+    if (tab === 'Posts' && creator.postCount === 0) return false;
+    // For Kemono, we don't have links or dmCount in the search API, so we show them by default unless we know for a fact they are 0
+    return true;
+  });
+  
+  tabs.forEach((tab, index) => {
+    const btn = document.createElement('button');
+    btn.textContent = tab;
+    if (index === 0) btn.style.background = 'rgba(0, 123, 255, 0.6)';
+    
+    btn.addEventListener('click', () => {
+      Array.from(navTabs.children).forEach(c => c.style.background = '');
+      btn.style.background = 'rgba(0, 123, 255, 0.6)';
+      
+      // Clear feed and show coming soon placeholder for non-post tabs
+      resetFeed();
+      if (tab === 'Posts') {
+        currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/posts`;
+        fetchPosts();
+      } else {
+        const placeholder = document.createElement('div');
+        placeholder.style.color = '#ccc';
+        placeholder.style.textAlign = 'center';
+        placeholder.style.padding = '40px';
+        placeholder.style.fontSize = '1.2rem';
+        placeholder.textContent = `${tab} are not yet supported by Paw Reader.`;
+        feed.appendChild(placeholder);
+      }
+    });
+    
+    navTabs.appendChild(btn);
   });
 }
 
@@ -610,6 +638,7 @@ function renderCreatorsPage() {
       const selectedPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
       currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${selectedPlatform.service}/user/${selectedPlatform.id}/posts`;
       currentFeedCreatorName = creator.name;
+      updateNavTabs(selectedPlatform);
       if(navBack) navBack.classList.remove('hidden');
       showView(feedView, true, true);
       fetchPosts();
