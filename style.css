@@ -107,7 +107,11 @@ body {
     right: 70px; 
     transform: none; 
     max-width: none; 
-    width: auto; 
+    width: auto;
+  }
+  #nav-tabs::before, #nav-tabs::after {
+    content: '';
+    margin: auto;
   }
 }
 #nav button {
@@ -438,7 +442,7 @@ body {
   font-family: monospace;
 }
 
-#nav-back.hidden, #nav-info.hidden { display: none !important; }
+#nav-back.hidden, #nav-info.hidden, #nav-tabs.hidden { display: none !important; }
 #settings-menu {
   position: fixed;
   top: 50%;

@@ -485,6 +485,8 @@ function showView(viewElement, showNav = true, showToggle = false) {
 }
 
 navHome.addEventListener('click', () => {
+  currentFeedCreatorName = null;
+  updateNavTabs(null); // Clear tabs
   showView(welcomeScreen, false);
   if(navBack) navBack.classList.add('hidden');
 });
@@ -1389,9 +1391,7 @@ function createPostCard(post) {
         return;
       }
     }
-    
-    info.classList.toggle('expanded');
-    updateNavVisibility();
+    // Info toggling via card click has been disabled in favor of the dedicated info button.
   });
 
   card.appendChild(info);
