@@ -195,9 +195,19 @@ if (settingHideNoMedia) {
 }
 
 window.pawAnimationsDisabled = localStorage.getItem('paw_animations_disabled') === 'true';
+window.pawAutoDownloadZip = localStorage.getItem('paw_auto_download_zip') === 'true';
 if (window.pawAnimationsDisabled) document.body.classList.add('no-animations');
 
 const settingDisableAnimations = document.getElementById('setting-disable-animations');
+const settingAutoDownloadZip = document.getElementById('setting-auto-download-zip');
+if (settingAutoDownloadZip) {
+  settingAutoDownloadZip.checked = window.pawAutoDownloadZip;
+  settingAutoDownloadZip.addEventListener('change', (e) => {
+    window.pawAutoDownloadZip = e.target.checked;
+    localStorage.setItem('paw_auto_download_zip', window.pawAutoDownloadZip);
+  });
+}
+
 if (settingDisableAnimations) {
   settingDisableAnimations.checked = window.pawAnimationsDisabled;
   settingDisableAnimations.addEventListener('change', (e) => {
@@ -1028,78 +1038,252 @@ async function loadMediaWithProgress(item) {
 
   if (type === 'zip') {
     progressOverlay.style.display = 'none';
-    const zipBtn = document.createElement('button');
-    const filename = item.dataset.originalName || (item.dataset.path || url).split('/').pop() || 'Archive.zip';
-    zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Scanning contents...</small>`;
-    zipBtn.style.background = 'rgba(0, 0, 0, 0.6)';
-    zipBtn.style.backdropFilter = 'blur(10px)';
-    zipBtn.style.color = 'white';
-    zipBtn.style.border = 'none';
-    zipBtn.style.padding = '20px 30px';
-    zipBtn.style.borderRadius = '15px';
-    zipBtn.style.cursor = 'pointer';
-    zipBtn.style.fontWeight = 'bold';
-    zipBtn.style.fontSize = '1.2rem';
-    zipBtn.style.textAlign = 'center';
+    const container = document.createElement('div');
+    container.style.width = '100%';
+    container.style.height = '100%';
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.alignItems = 'center';
+    container.style.justifyContent = 'center';
+    container.style.background = '#111';
+    container.style.padding = '20px';
+    container.style.boxSizing = 'border-box';
     
-    // Auto-fetch to get file list and cache for instant opening
-    let cachedBlob = null;
-    fetch(url)
-      .then(async res => {
-        if (!res.ok) throw new Error('Failed');
-        const size = res.headers.get('content-length');
-        const sizeStr = size ? formatBytes(parseInt(size, 10)) : 'Unknown size';
-        cachedBlob = await res.blob();
-        const zip = await JSZip.loadAsync(cachedBlob);
+    const filename = item.dataset.originalName || (item.dataset.path || url).split('/').pop() || 'Archive.zip';
+    
+    const infoText = document.createElement('div');
+    infoText.style.color = '#fff';
+    infoText.style.fontFamily = 'monospace';
+    infoText.style.whiteSpace = 'pre-wrap';
+    infoText.style.background = 'rgba(0,0,0,0.5)';
+    infoText.style.padding = '15px';
+    infoText.style.borderRadius = '10px';
+    infoText.style.marginBottom = '20px';
+    infoText.style.maxWidth = '100%';
+    infoText.style.overflow = 'auto';
+    infoText.style.maxHeight = '40%';
+    infoText.style.fontSize = '0.9rem';
+    infoText.style.textAlign = 'left';
+    infoText.textContent = `📦 ${filename}\nScanning contents...`;
+    
+    container.appendChild(infoText);
+    
+    const btnRow = document.createElement('div');
+    btnRow.style.display = 'flex';
+    btnRow.style.gap = '10px';
+    btnRow.style.flexWrap = 'wrap';
+    btnRow.style.justifyContent = 'center';
+    
+    const btnDownload = document.createElement('button');
+    btnDownload.textContent = '🔽 Download';
+    btnDownload.className = 'zip-action-btn';
+    
+    const btnPause = document.createElement('button');
+    btnPause.textContent = '⏸ Pause';
+    btnPause.className = 'zip-action-btn';
+    btnPause.style.display = 'none';
+    
+    const btnAbort = document.createElement('button');
+    btnAbort.textContent = '⏹ Abort';
+    btnAbort.className = 'zip-action-btn';
+    btnAbort.style.display = 'none';
+    
+    const btnSave = document.createElement('button');
+    btnSave.textContent = '💾 Save to Device';
+    btnSave.className = 'zip-action-btn';
+    btnSave.style.display = 'none';
+    
+    const btnView = document.createElement('button');
+    btnView.textContent = '🖼 View Gallery';
+    btnView.className = 'zip-action-btn';
+    btnView.style.display = 'none';
+    
+    btnRow.appendChild(btnDownload);
+    btnRow.appendChild(btnPause);
+    btnRow.appendChild(btnAbort);
+    btnRow.appendChild(btnSave);
+    btnRow.appendChild(btnView);
+    container.appendChild(btnRow);
+    
+    const progressContainer = document.createElement('div');
+    progressContainer.style.width = '80%';
+    progressContainer.style.marginTop = '15px';
+    progressContainer.style.display = 'none';
+    
+    const progressText = document.createElement('div');
+    progressText.style.color = '#fff';
+    progressText.style.fontSize = '0.8rem';
+    progressText.style.marginBottom = '5px';
+    progressText.style.textAlign = 'center';
+    progressContainer.appendChild(progressText);
+    
+    const progressBar = document.createElement('div');
+    progressBar.style.width = '100%';
+    progressBar.style.height = '10px';
+    progressBar.style.background = '#444';
+    progressBar.style.borderRadius = '5px';
+    
+    const progressFill = document.createElement('div');
+    progressFill.style.width = '0%';
+    progressFill.style.height = '100%';
+    progressFill.style.background = '#00AEEF';
+    progressFill.style.borderRadius = '5px';
+    progressFill.style.transition = 'width 0.1s linear';
+    progressBar.appendChild(progressFill);
+    progressContainer.appendChild(progressBar);
+    
+    container.appendChild(progressContainer);
+    
+    item.appendChild(container);
+    
+    let isPaused = false;
+    let abortController = null;
+    let zipBlob = null;
+    let totalSize = 0;
+    
+    async function scanZip() {
+      try {
+        if (!window.unzipit) throw new Error('unzipit not loaded');
+        const { entries } = await window.unzipit.unzip(url);
+        const filenames = Object.keys(entries).filter(p => !p.endsWith('/') && !p.startsWith('__MACOSX/')).map(p => p.split('/').pop());
         
-        const filenames = [];
-        zip.forEach((relativePath, zipEntry) => {
-          if (!zipEntry.dir && !relativePath.startsWith('__MACOSX/')) {
-             filenames.push(relativePath.split('/').pop());
-          }
-        });
-        
-        let contentStr = '';
-        let headerSize = sizeStr;
+        let contentStr = `📦 ${filename}\n`;
         const MAX_FILES = 10;
         
         if (filenames.length > 0) {
           if (filenames.length > MAX_FILES) {
-            headerSize = `${sizeStr}, ${filenames.length} files`;
+            contentStr += `${filenames.length} files\n`;
           }
           const displayCount = Math.min(MAX_FILES, filenames.length);
           for (let i = 0; i < displayCount; i++) {
              const isLast = (i === displayCount - 1);
              if (isLast) {
-                contentStr += `<br>&nbsp;&nbsp;└──${filenames[i]}`;
+                contentStr += `└─${filenames[i]}\n`;
              } else {
-                contentStr += `<br>&nbsp;&nbsp;├──${filenames[i]}`;
+                contentStr += `├─${filenames[i]}\n`;
              }
           }
+          if (filenames.length > MAX_FILES) {
+             contentStr += `└─ +${filenames.length - MAX_FILES} more...`;
+          }
         } else {
-          contentStr = '<br>&nbsp;&nbsp;└──Empty archive';
+          contentStr += `└─ (Empty or unreadable archive)`;
+        }
+        infoText.textContent = contentStr.trim();
+        
+        if (window.pawAutoDownloadZip) {
+          startDownload();
+        }
+      } catch (err) {
+        console.warn('unzipit failed, falling back', err);
+        infoText.textContent = `📦 ${filename}\n(Click Download to fetch)`;
+        if (window.pawAutoDownloadZip) {
+          startDownload();
+        }
+      }
+    }
+    
+    async function startDownload() {
+      btnDownload.style.display = 'none';
+      btnPause.style.display = 'inline-block';
+      btnAbort.style.display = 'inline-block';
+      btnSave.style.display = 'none';
+      btnView.style.display = 'none';
+      progressContainer.style.display = 'block';
+      isPaused = false;
+      btnPause.textContent = '⏸ Pause';
+      
+      abortController = new AbortController();
+      let chunks = [];
+      let downloaded = 0;
+      let startTime = Date.now();
+      
+      try {
+        const response = await fetch(url, { signal: abortController.signal });
+        if (!response.ok) throw new Error('Network error');
+        totalSize = parseInt(response.headers.get('content-length') || '0', 10);
+        const reader = response.body.getReader();
+        
+        while (true) {
+          if (isPaused) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            if (abortController.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+            continue;
+          }
+          
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          chunks.push(value);
+          downloaded += value.length;
+          
+          if (totalSize) {
+             progressFill.style.width = Math.min(100, (downloaded / totalSize) * 100) + '%';
+             
+             const elapsed = (Date.now() - startTime) / 1000;
+             const speed = downloaded / elapsed;
+             const remaining = (totalSize - downloaded) / speed;
+             
+             progressText.textContent = `${formatBytes(downloaded)} / ${formatBytes(totalSize)} - ${formatBytes(speed)}/s - ${Math.round(remaining)}s left`;
+          } else {
+             progressText.textContent = `${formatBytes(downloaded)} downloaded`;
+          }
         }
         
-        zipBtn.innerHTML = `<div style="text-align:center; margin-bottom:5px;">📦 Open ZIP Gallery</div><div style="font-size:0.85rem; opacity:0.8; font-weight:normal; text-align:left; display:inline-block; margin:auto; font-family:monospace;">${filename} <span style="opacity:0.6">(${headerSize})</span>${contentStr}</div>`;
-      })
-      .catch(() => {
-        item.innerHTML = '';
-        item.appendChild(progressOverlay);
-        progressOverlay.style.display = 'flex';
-        showMediaUnavailableWarning(progressOverlay, type);
-      });
+        zipBlob = new Blob(chunks);
+        btnPause.style.display = 'none';
+        btnAbort.style.display = 'none';
+        btnSave.style.display = 'inline-block';
+        btnView.style.display = 'inline-block';
+        progressContainer.style.display = 'none';
+        
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          progressText.textContent = 'Aborted.';
+          btnDownload.style.display = 'inline-block';
+          btnPause.style.display = 'none';
+          btnAbort.style.display = 'none';
+        } else {
+          progressText.textContent = 'Error downloading.';
+          btnDownload.style.display = 'inline-block';
+          btnPause.style.display = 'none';
+          btnAbort.style.display = 'none';
+        }
+      }
+    }
     
-    zipBtn.addEventListener('click', (e) => {
+    btnDownload.addEventListener('click', (e) => { e.stopPropagation(); startDownload(); });
+    
+    btnPause.addEventListener('click', (e) => {
       e.stopPropagation();
-      openZipGallery(url, filename, cachedBlob);
+      isPaused = !isPaused;
+      btnPause.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
     });
     
-    // Center it in the media item perfectly
-    item.style.display = 'flex';
-    item.style.alignItems = 'center';
-    item.style.justifyContent = 'center';
+    btnAbort.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (abortController) abortController.abort();
+    });
     
-    item.appendChild(zipBtn);
+    btnSave.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!zipBlob) return;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(zipBlob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+    
+    btnView.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!zipBlob) return;
+      openZipGallery(url, filename, zipBlob);
+    });
+    
+    scanZip();
     return;
   }
   
@@ -2131,3 +2315,127 @@ async function openZipGallery(zipUrl, filename, cachedBlob = null) {
     showMediaUnavailableWarning(zipContent, 'zip');
   }
 }
+
+
+// --- Scroll Hijacker for Disabled Animations ---
+let lastHijackTime = 0;
+document.addEventListener('wheel', (e) => {
+  if (!window.pawAnimationsDisabled) return;
+  if (e.target.closest('#zip-settings-viewer') || e.target.closest('#settings-menu') || e.target.closest('.media-progress') || e.target.closest('.creator-list')) return;
+  
+  // Throttle wheel events so a trackpad swipe doesn't fly through 10 posts
+  const now = Date.now();
+  if (now - lastHijackTime < 400) {
+    e.preventDefault();
+    return;
+  }
+  
+  const carousel = e.target.closest('.media-carousel');
+  const zipContent = e.target.closest('#zip-content');
+  const feed = e.target.closest('#feed');
+  
+  if (zipContent && !document.getElementById('zip-viewer').classList.contains('hidden')) {
+    e.preventDefault();
+    lastHijackTime = now;
+    const w = window.innerWidth;
+    let target = Math.round(zipContent.scrollLeft / w) * w;
+    if (e.deltaY > 0 || e.deltaX > 0) target += w;
+    else if (e.deltaY < 0 || e.deltaX < 0) target -= w;
+    target = Math.max(0, Math.min(target, zipContent.scrollWidth - zipContent.clientWidth));
+    zipContent.scrollTo({ left: target, behavior: 'auto' });
+  } else if (carousel) {
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      e.preventDefault();
+      lastHijackTime = now;
+      const w = window.innerWidth;
+      let target = Math.round(carousel.scrollLeft / w) * w;
+      if (e.deltaX > 0) target += w;
+      else if (e.deltaX < 0) target -= w;
+      target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
+      carousel.scrollTo({ left: target, behavior: 'auto' });
+    }
+  } else if (feed && !document.getElementById('feed-view').classList.contains('hidden')) {
+    e.preventDefault();
+    lastHijackTime = now;
+    const h = window.innerHeight;
+    let target = Math.round(feed.scrollTop / h) * h;
+    if (e.deltaY > 0) target += h;
+    else if (e.deltaY < 0) target -= h;
+    target = Math.max(0, Math.min(target, feed.scrollHeight - feed.clientHeight));
+    feed.scrollTo({ top: target, behavior: 'auto' });
+  }
+}, { passive: false });
+
+let globalTouchStartX = 0;
+let globalTouchStartY = 0;
+let touchHijackHandled = false;
+
+document.addEventListener('touchstart', (e) => {
+  if (!window.pawAnimationsDisabled) return;
+  if (e.touches.length !== 1) return;
+  globalTouchStartX = e.touches[0].clientX;
+  globalTouchStartY = e.touches[0].clientY;
+  touchHijackHandled = false;
+}, { passive: true });
+
+document.addEventListener('touchmove', (e) => {
+  if (!window.pawAnimationsDisabled) return;
+  if (e.target.closest('#zip-settings-viewer') || e.target.closest('#settings-menu') || e.target.closest('.media-progress') || e.target.closest('.creator-list')) return;
+  
+  const dx = e.touches[0].clientX - globalTouchStartX;
+  const dy = e.touches[0].clientY - globalTouchStartY;
+  if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+     if (e.cancelable) e.preventDefault();
+  }
+}, { passive: false });
+
+document.addEventListener('touchend', (e) => {
+  if (!window.pawAnimationsDisabled) return;
+  if (e.target.closest('#zip-settings-viewer') || e.target.closest('#settings-menu') || e.target.closest('.media-progress') || e.target.closest('.creator-list')) return;
+  if (touchHijackHandled) return;
+  
+  const dx = globalTouchStartX - e.changedTouches[0].clientX;
+  const dy = globalTouchStartY - e.changedTouches[0].clientY;
+  
+  if (Math.abs(dx) < 30 && Math.abs(dy) < 30) return; // Not a swipe
+  touchHijackHandled = true;
+  
+  const carousel = e.target.closest('.media-carousel');
+  const zipContent = e.target.closest('#zip-content');
+  const feed = e.target.closest('#feed');
+  
+  if (zipContent && !document.getElementById('zip-viewer').classList.contains('hidden')) {
+    if (Math.abs(dx) > Math.abs(dy)) {
+       const w = window.innerWidth;
+       let target = Math.round(zipContent.scrollLeft / w) * w;
+       if (dx > 30) target += w;
+       else if (dx < -30) target -= w;
+       target = Math.max(0, Math.min(target, zipContent.scrollWidth - zipContent.clientWidth));
+       zipContent.scrollTo({ left: target, behavior: 'auto' });
+    }
+  } else if (carousel) {
+    if (Math.abs(dx) > Math.abs(dy)) {
+       const w = window.innerWidth;
+       let target = Math.round(carousel.scrollLeft / w) * w;
+       if (dx > 30) target += w;
+       else if (dx < -30) target -= w;
+       target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
+       carousel.scrollTo({ left: target, behavior: 'auto' });
+    } else if (feed) {
+       const h = window.innerHeight;
+       let target = Math.round(feed.scrollTop / h) * h;
+       if (dy > 30) target += h;
+       else if (dy < -30) target -= h;
+       target = Math.max(0, Math.min(target, feed.scrollHeight - feed.clientHeight));
+       feed.scrollTo({ top: target, behavior: 'auto' });
+    }
+  } else if (feed && !document.getElementById('feed-view').classList.contains('hidden')) {
+    const h = window.innerHeight;
+    let target = Math.round(feed.scrollTop / h) * h;
+    if (dy > 30) target += h;
+    else if (dy < -30) target -= h;
+    target = Math.max(0, Math.min(target, feed.scrollHeight - feed.clientHeight));
+    feed.scrollTo({ top: target, behavior: 'auto' });
+  }
+});
+// --- End Scroll Hijacker ---

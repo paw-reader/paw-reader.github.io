@@ -575,3 +575,17 @@ body.no-animations * {
 body.no-animations #feed, body.no-animations .media-carousel, body.no-animations #zip-content {
   scroll-snap-type: none !important;
 }
+
+.zip-action-btn {
+  background: rgba(0, 123, 255, 0.6);
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 1rem;
+}
+.zip-action-btn:hover {
+  background: rgba(0, 123, 255, 0.8);
+}
