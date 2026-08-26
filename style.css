@@ -102,7 +102,13 @@ body {
 @media (max-width: 600px), (max-height: 500px) {
   #nav-info { top: 65px; left: 20px; }
   #nav-settings { top: 65px; right: 20px; }
-  #nav-tabs { max-width: calc(100vw - 120px); }
+  #nav-tabs { 
+    left: 70px; 
+    right: 70px; 
+    transform: none; 
+    max-width: none; 
+    width: auto; 
+  }
 }
 #nav button {
   backdrop-filter: blur(10px);
