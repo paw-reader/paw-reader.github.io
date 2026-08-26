@@ -486,7 +486,7 @@ function showView(viewElement, showNav = true, showToggle = false) {
 
 navHome.addEventListener('click', () => {
   currentFeedCreatorName = null;
-  updateNavTabs(null); // Clear tabs
+  updateNavTabs(null); // Hide creator tabs when going home
   showView(welcomeScreen, false);
   if(navBack) navBack.classList.add('hidden');
 });
@@ -1391,7 +1391,8 @@ function createPostCard(post) {
         return;
       }
     }
-    // Info toggling via card click has been disabled in favor of the dedicated info button.
+    
+    // Post info is only toggled via the ℹ️ nav button
   });
 
   card.appendChild(info);
