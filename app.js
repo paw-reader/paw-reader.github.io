@@ -106,7 +106,8 @@ window.lastMouseY = window.innerHeight;
 function updateNavVisibility(mouseY = window.lastMouseY) {
   if (!nav.classList.contains('auto-hide')) return;
   const anyInfoExpanded = !!document.querySelector('.post-info.expanded');
-  if (anyInfoExpanded || mouseY < 80) {
+  const dropdownOpen = !!document.getElementById('linked-accounts-dropdown');
+  if (anyInfoExpanded || dropdownOpen || mouseY < 80) {
     nav.classList.add('visible');
     document.body.classList.add('nav-visible');
   } else {
