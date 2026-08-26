@@ -77,6 +77,32 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 1.2rem;
+  position: fixed;
+  z-index: 1000;
+}
+
+#nav-back { top: 20px; left: 20px; }
+#nav-info { top: 20px; left: 65px; }
+#nav-settings { top: 20px; right: 65px; }
+#nav-home { top: 20px; right: 20px; }
+
+#nav-tabs {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  gap: 10px;
+  pointer-events: auto;
+  max-width: calc(100vw - 230px);
+  overflow-x: auto;
+}
+
+@media (max-width: 600px) {
+  #nav-info { top: 65px; left: 20px; }
+  #nav-settings { top: 65px; right: 20px; }
+  #nav-tabs { max-width: calc(100vw - 140px); }
 }
 #nav button {
   backdrop-filter: blur(10px);
@@ -483,6 +509,11 @@ body {
 
 body.nav-visible .carousel-indicator {
   top: 70px;
+}
+@media (max-width: 600px) {
+  body.nav-visible .carousel-indicator {
+    top: 110px;
+  }
 }
 
 
