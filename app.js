@@ -768,10 +768,21 @@ function createPostCard(post) {
   
   const serviceIcon = document.createElement('img');
   serviceIcon.src = `icons/${post.service}.svg`;
-  serviceIcon.style.width = '18px';
-  serviceIcon.style.height = '18px';
   serviceIcon.style.objectFit = 'contain';
-  serviceIcon.style.marginBottom = '4px'; // Optical alignment with text baseline
+  
+  if (post.service === 'fantia') {
+    serviceIcon.style.width = '50px';
+    serviceIcon.style.height = '24px';
+    serviceIcon.style.marginBottom = '0px';
+  } else if (post.service === 'dlsite') {
+    serviceIcon.style.width = '50px';
+    serviceIcon.style.height = '24px';
+    serviceIcon.style.marginBottom = '4px';
+  } else {
+    serviceIcon.style.width = '18px';
+    serviceIcon.style.height = '18px';
+    serviceIcon.style.marginBottom = '4px'; // Optical alignment with text baseline
+  }
   serviceIcon.title = post.service; // tooltip
   serviceIcon.onerror = () => {
     serviceIcon.style.display = 'none';
