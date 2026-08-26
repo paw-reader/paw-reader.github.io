@@ -200,6 +200,7 @@ function updateNavTabs(creator) {
   tabs = tabs.filter(tab => {
     if (tab === 'DMs' && creator.dmCount === 0) return false;
     if (tab === 'Posts' && creator.postCount === 0) return false;
+    if (tab === 'Linked Accounts' && (!creator.allPlatforms || creator.allPlatforms.length <= 1)) return false;
     // For Kemono, we don't have links or dmCount in the search API, so we show them by default unless we know for a fact they are 0
     return true;
   });
@@ -218,6 +219,62 @@ function updateNavTabs(creator) {
       if (tab === 'Posts') {
         currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/posts`;
         fetchPosts();
+      } else if (tab === 'Linked Accounts') {
+        const grid = document.createElement('div');
+        grid.className = 'creators-grid';
+        grid.style.marginTop = '20px';
+        
+        if (creator.allPlatforms) {
+          creator.allPlatforms.forEach(p => {
+            if (p.service === creator.service && p.id === creator.id) return;
+            const singlePlatformCreator = { ...p, allPlatforms: null };
+            const card = buildCreatorCard(singlePlatformCreator);
+            grid.appendChild(card);
+          });
+        }
+        feed.appendChild(grid);
+      } else if (tab === 'Similar Creators' || tab === 'Similar Artists') {
+        feed.innerHTML = '<div style="text-align:center; padding: 40px; color: #aaa;">Loading similar creators...</div>';
+        
+        const endpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/similar`;
+        fetch(endpoint)
+          .then(res => res.json())
+          .then(data => {
+            feed.innerHTML = '';
+            const similarCreators = data.creators || (Array.isArray(data) ? data : null);
+            
+            if (similarCreators && similarCreators.length > 0) {
+              const grid = document.createElement('div');
+              grid.className = 'creators-grid';
+              grid.style.marginTop = '20px';
+              
+              similarCreators.forEach(c => {
+                c.allPlatforms = [c];
+                const card = buildCreatorCard(c);
+                grid.appendChild(card);
+              });
+              
+              feed.appendChild(grid);
+            } else {
+              const placeholder = document.createElement('div');
+              placeholder.style.color = '#ccc';
+              placeholder.style.textAlign = 'center';
+              placeholder.style.padding = '40px';
+              placeholder.style.fontSize = '1.2rem';
+              placeholder.textContent = `No similar creators found for this profile.`;
+              feed.appendChild(placeholder);
+            }
+          })
+          .catch(err => {
+            feed.innerHTML = '';
+            const placeholder = document.createElement('div');
+            placeholder.style.color = '#ccc';
+            placeholder.style.textAlign = 'center';
+            placeholder.style.padding = '40px';
+            placeholder.style.fontSize = '1.2rem';
+            placeholder.textContent = `Similar artists are not yet supported for this source.`;
+            feed.appendChild(placeholder);
+          });
       } else {
         const placeholder = document.createElement('div');
         placeholder.style.color = '#ccc';
@@ -557,6 +614,86 @@ function filterAndSortCreators() {
   renderCreatorsPage();
 }
 
+function buildCreatorCard(creator, checkedServices = []) {
+  const card = document.createElement('div');
+  card.className = 'creator-card';
+  
+  let currentPlatformIndex = 0;
+  if (checkedServices.length > 0 && creator.allPlatforms) {
+    const idx = creator.allPlatforms.findIndex(p => checkedServices.includes(p.service));
+    if (idx !== -1) currentPlatformIndex = idx;
+  }
+  
+  const initialPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
+  
+  card.style.backgroundColor = getServiceColor(initialPlatform.service);
+  
+  const img = document.createElement('img');
+  img.className = 'creator-image';
+  if (currentSite === 'cum') {
+    img.src = `https://img.cum.st/creator/${initialPlatform.service}/${initialPlatform.id}/avatar.webp`;
+  } else {
+    img.src = `${PROXY_URL}/${currentSite}/icons/${initialPlatform.service}/${initialPlatform.id}`;
+  }
+  img.loading = 'lazy';
+  img.onerror = () => { img.style.display = 'none'; };
+  
+  const name = document.createElement('div');
+  name.className = 'creator-name';
+  name.textContent = initialPlatform.name;
+  
+  const service = document.createElement('div');
+  service.className = 'creator-service';
+  service.textContent = initialPlatform.service;
+  
+  card.appendChild(img);
+  card.appendChild(name);
+  card.appendChild(service);
+  
+  if (creator.allPlatforms && creator.allPlatforms.length > 1) {
+    const switchBtn = document.createElement('div');
+    switchBtn.textContent = '🔄';
+    switchBtn.style.position = 'absolute';
+    switchBtn.style.top = '10px';
+    switchBtn.style.right = '10px';
+    switchBtn.style.cursor = 'pointer';
+    switchBtn.style.fontSize = '1.2rem';
+    switchBtn.style.background = 'rgba(0,0,0,0.5)';
+    switchBtn.style.borderRadius = '50%';
+    switchBtn.style.padding = '5px';
+    switchBtn.title = 'Switch Service';
+    
+    switchBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentPlatformIndex = (currentPlatformIndex + 1) % creator.allPlatforms.length;
+      const newPlatform = creator.allPlatforms[currentPlatformIndex];
+      if (currentSite === 'cum') {
+        img.src = `https://img.cum.st/creator/${newPlatform.service}/${newPlatform.id}/avatar.webp`;
+      } else {
+        img.src = `${PROXY_URL}/${currentSite}/icons/${newPlatform.service}/${newPlatform.id}`;
+      }
+      img.style.display = 'block';
+      name.textContent = newPlatform.name;
+      service.textContent = newPlatform.service;
+      card.style.backgroundColor = getServiceColor(newPlatform.service);
+    });
+    card.appendChild(switchBtn);
+  }
+  
+  card.addEventListener('click', () => {
+    resetFeed();
+    const selectedPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
+    currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${selectedPlatform.service}/user/${selectedPlatform.id}/posts`;
+    currentFeedCreatorName = creator.name;
+    updateNavTabs(selectedPlatform);
+    if(navBack) navBack.classList.remove('hidden');
+    showView(feedView, true, true);
+    fetchPosts();
+  });
+  
+  return card;
+}
+
 function renderCreatorsPage() {
   creatorsList.innerHTML = '';
   paginationContainer.innerHTML = '';
@@ -574,78 +711,7 @@ function renderCreatorsPage() {
     : [];
   
   pageCreators.forEach(creator => {
-    const card = document.createElement('div');
-    card.className = 'creator-card';
-    
-    let currentPlatformIndex = 0;
-    if (checkedServices.length > 0 && creator.allPlatforms) {
-      const idx = creator.allPlatforms.findIndex(p => checkedServices.includes(p.service));
-      if (idx !== -1) currentPlatformIndex = idx;
-    }
-    
-    const initialPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
-    
-    card.style.backgroundColor = getServiceColor(initialPlatform.service);
-    
-    const img = document.createElement('img');
-    img.className = 'creator-image';
-    if (currentSite === 'cum') {
-      img.src = `https://img.cum.st/creator/${initialPlatform.service}/${initialPlatform.id}/avatar.webp`;
-    } else {
-      img.src = `${PROXY_URL}/${currentSite}/icons/${initialPlatform.service}/${initialPlatform.id}`;
-    }
-    img.loading = 'lazy';
-    img.onerror = () => { img.style.display = 'none'; };
-    
-    const name = document.createElement('div');
-    name.className = 'creator-name';
-    name.textContent = initialPlatform.name;
-    
-    const service = document.createElement('div');
-    service.className = 'creator-service';
-    service.textContent = initialPlatform.service;
-    
-    card.appendChild(img);
-    card.appendChild(name);
-    card.appendChild(service);
-    
-    if (creator.allPlatforms && creator.allPlatforms.length > 1) {
-      const switchBtn = document.createElement('div');
-      switchBtn.textContent = '🔄';
-      switchBtn.style.position = 'absolute';
-      switchBtn.style.top = '10px';
-      switchBtn.style.right = '10px';
-      switchBtn.style.cursor = 'pointer';
-      switchBtn.style.fontSize = '1.2rem';
-      
-      switchBtn.addEventListener('click', (e) => {
-        e.stopPropagation(); // prevent card click
-        currentPlatformIndex = (currentPlatformIndex + 1) % creator.allPlatforms.length;
-        const newPlatform = creator.allPlatforms[currentPlatformIndex];
-        
-        if (currentSite === 'cum') {
-          img.src = `https://img.cum.st/creator/${newPlatform.service}/${newPlatform.id}/avatar.webp`;
-        } else {
-          img.src = `${PROXY_URL}/${currentSite}/icons/${newPlatform.service}/${newPlatform.id}`;
-        }
-        service.textContent = newPlatform.service;
-        card.style.backgroundColor = getServiceColor(newPlatform.service);
-      });
-      card.appendChild(switchBtn);
-    }
-    
-    card.addEventListener('click', () => {
-      resetFeed();
-      const selectedPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
-      currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${selectedPlatform.service}/user/${selectedPlatform.id}/posts`;
-      currentFeedCreatorName = creator.name;
-      updateNavTabs(selectedPlatform);
-      if(navBack) navBack.classList.remove('hidden');
-      showView(feedView, true, true);
-      fetchPosts();
-    });
-    
-    creatorsList.appendChild(card);
+    creatorsList.appendChild(buildCreatorCard(creator, checkedServices));
   });
   
   renderPagination(totalPages);
