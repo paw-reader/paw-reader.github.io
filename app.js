@@ -2312,53 +2312,65 @@ async function openZipGallery(zipUrl, filename, cachedBlob = null) {
 
 
 // --- Scroll Hijacker for Disabled Animations ---
-let disabledScrollTimeout = false;
+let wheelAccumX = 0;
+let wheelAccumY = 0;
+let wheelAccumTimer = null;
+const SCROLL_THRESHOLD = 80;
+
 document.addEventListener('wheel', (e) => {
   if (!window.pawAnimationsDisabled) return;
   if (e.target.closest('#zip-settings-viewer') || e.target.closest('#settings-menu') || e.target.closest('.media-progress') || e.target.closest('.creator-list') || e.target.closest('.zip-info-text')) return;
+  
+  e.preventDefault();
+  
+  wheelAccumX += e.deltaX;
+  wheelAccumY += e.deltaY;
+  
+  clearTimeout(wheelAccumTimer);
+  wheelAccumTimer = setTimeout(() => {
+    wheelAccumX = 0;
+    wheelAccumY = 0;
+  }, 150);
+  
+  let stepsX = Math.trunc(wheelAccumX / SCROLL_THRESHOLD);
+  let stepsY = Math.trunc(wheelAccumY / SCROLL_THRESHOLD);
+  
+  if (stepsX === 0 && stepsY === 0) return;
   
   const carousel = e.target.closest('.media-carousel');
   const zipContent = e.target.closest('#zip-content');
   const feed = e.target.closest('#feed');
   
   if (zipContent && !document.getElementById('zip-viewer').classList.contains('hidden')) {
-    e.preventDefault();
-    if (disabledScrollTimeout) return;
-    disabledScrollTimeout = true;
-    setTimeout(() => disabledScrollTimeout = false, 250);
+    wheelAccumX -= stepsX * SCROLL_THRESHOLD;
+    wheelAccumY -= stepsY * SCROLL_THRESHOLD;
+    let steps = Math.abs(stepsX) >= Math.abs(stepsY) ? stepsX : stepsY;
     
     const w = window.innerWidth;
     let target = Math.round(zipContent.scrollLeft / w) * w;
-    if (e.deltaY > 0 || e.deltaX > 0) target += w;
-    else if (e.deltaY < 0 || e.deltaX < 0) target -= w;
+    target += steps * w;
     target = Math.max(0, Math.min(target, zipContent.scrollWidth - zipContent.clientWidth));
     zipContent.scrollTo({ left: target, behavior: 'auto' });
     
-  } else if (carousel && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-    e.preventDefault();
-    if (disabledScrollTimeout) return;
-    disabledScrollTimeout = true;
-    setTimeout(() => disabledScrollTimeout = false, 250);
+  } else if (carousel && Math.abs(wheelAccumX) > Math.abs(wheelAccumY)) {
+    wheelAccumX -= stepsX * SCROLL_THRESHOLD;
     
     const w = window.innerWidth;
     let target = Math.round(carousel.scrollLeft / w) * w;
-    if (e.deltaX > 0) target += w;
-    else if (e.deltaX < 0) target -= w;
+    target += stepsX * w;
     target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
     carousel.scrollTo({ left: target, behavior: 'auto' });
+    wheelAccumY = 0;
     
   } else if (feed && !document.getElementById('feed-view').classList.contains('hidden')) {
-    e.preventDefault();
-    if (disabledScrollTimeout) return;
-    disabledScrollTimeout = true;
-    setTimeout(() => disabledScrollTimeout = false, 250);
+    wheelAccumY -= stepsY * SCROLL_THRESHOLD;
     
     const h = window.innerHeight;
     let target = Math.round(feed.scrollTop / h) * h;
-    if (e.deltaY > 0) target += h;
-    else if (e.deltaY < 0) target -= h;
+    target += stepsY * h;
     target = Math.max(0, Math.min(target, feed.scrollHeight - feed.clientHeight));
     feed.scrollTo({ top: target, behavior: 'auto' });
+    wheelAccumX = 0;
   }
 }, { passive: false });
 
