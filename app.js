@@ -516,6 +516,13 @@ async function loadMediaWithProgress(item) {
   }
 
   try {
+    // Only attempt fetch-based progress tracking if the URL is routed through our proxy.
+    // Direct CDNs (Kemono, Cum.st) block CORS, which causes the browser to spam the console with 
+    // uncatchable red CORS errors before Javascript can even catch the exception.
+    if (!url.startsWith(PROXY_URL)) {
+      throw new Error('Direct CDN URL (Bypassing fetch to prevent CORS spam)');
+    }
+
     const response = await fetch(url);
     if (!response.ok) throw new Error('Network response was not ok');
     
