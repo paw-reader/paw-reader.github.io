@@ -262,6 +262,7 @@ if(searchInput) {
             if (data.creators) {
               const existingIds = new Set(allCreators.map(c => c.id));
               data.creators.forEach(c => {
+                if (c.service === 'discord') return;
                 if (!existingIds.has(c.id)) {
                   c.allPlatforms = [c];
                   allCreators.push(c);
@@ -322,6 +323,7 @@ async function syncCumCreators() {
         if (res.status === 'fulfilled' && res.value.creators) {
           const existingIds = new Set(allCreators.map(c => c.id));
           res.value.creators.forEach(c => {
+            if (c.service === 'discord') return;
             if (!existingIds.has(c.id)) {
               c.allPlatforms = [c];
               allCreators.push(c);
@@ -372,6 +374,7 @@ async function loadCreators() {
     }
     const uniqueCreators = new Map();
     rawCreators.forEach(c => {
+      if (c.service === 'discord') return;
       const key = c.name.toLowerCase().trim();
       if (!uniqueCreators.has(key)) {
         uniqueCreators.set(key, { platforms: [c] });
