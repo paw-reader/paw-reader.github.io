@@ -414,7 +414,7 @@ function filterAndSortCreators() {
     
     let hasContent = false;
     if (currentSite === 'cum') {
-       hasContent = c.postCount > 0 || c.updated !== 0;
+       hasContent = c.postCount > 0 || c.imageCount > 0 || c.videoCount > 0 || c.dmCount > 0;
     } else {
        hasContent = c.updated !== 0;
     }
