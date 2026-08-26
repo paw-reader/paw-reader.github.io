@@ -114,6 +114,7 @@ input, textarea, [contenteditable], .post-info.expanded {
 }
 
 @media (max-width: 600px), (max-height: 500px) {
+  #nav-left { flex-direction: column; }
   #nav-info { top: 65px; left: 20px; }
   #nav-settings { top: 65px; right: 20px; }
   #nav-tabs { 
