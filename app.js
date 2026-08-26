@@ -705,7 +705,8 @@ function buildCreatorCard(creator, checkedServices = []) {
     const selectedPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
     currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${selectedPlatform.service}/user/${selectedPlatform.id}/posts`;
     currentFeedCreatorName = creator.name;
-    updateNavTabs(selectedPlatform);
+    // Pass the full creator object (with allPlatforms) so Linked Accounts tab can see all services
+    updateNavTabs({ ...selectedPlatform, allPlatforms: creator.allPlatforms });
     if(navBack) navBack.classList.remove('hidden');
     showView(feedView, true, true);
     fetchPosts();
