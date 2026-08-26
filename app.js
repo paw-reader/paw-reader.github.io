@@ -1643,14 +1643,25 @@ document.getElementById('feed').addEventListener('scroll', (e) => {
 
 let carouselScrollTimeouts = new Map();
 document.addEventListener('scroll', (e) => {
-  if (e.target && e.target.classList && e.target.classList.contains('media-carousel')) {
-    closeAllPostInfo();
-    const carousel = e.target;
-    clearTimeout(carouselScrollTimeouts.get(carousel));
-    carouselScrollTimeouts.set(carousel, setTimeout(() => {
-      delete carousel.dataset.targetScroll;
-      delete carousel.dataset.scrollDir;
-      carousel.style.scrollSnapType = '';
+  if (!e.target || !e.target.classList) return;
+  
+  if (e.target.classList.contains('media-carousel') || e.target.id === 'zip-content' || e.target.id === 'feed') {
+    if (e.target.classList.contains('media-carousel')) {
+      closeAllPostInfo();
+    }
+    const container = e.target;
+    if (!window.containerScrollTimeouts) window.containerScrollTimeouts = new Map();
+    clearTimeout(window.containerScrollTimeouts.get(container));
+    window.containerScrollTimeouts.set(container, setTimeout(() => {
+      delete container.dataset.targetScroll;
+      delete container.dataset.scrollDir;
+      if (container.id === 'feed') {
+        container.style.scrollSnapType = '';
+      } else if (container.id === 'zip-content') {
+        container.style.scrollSnapType = 'x mandatory';
+      } else {
+        container.style.scrollSnapType = '';
+      }
     }, 150));
   }
 }, true);
