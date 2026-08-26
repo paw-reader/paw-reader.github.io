@@ -446,7 +446,13 @@ function resetFeed() {
 function getMediaUrl(path) {
   if (!path) return null;
   if (currentSite === 'kemono') {
-    return `https://kemono.cr/data${path}`;
+    // Kemono's main CDN (n3) is currently down/dropping connections. 
+    // We use their thumbnail server as a fallback so images at least load!
+    const ext = path.split('.').pop().toLowerCase();
+    if (['mp4', 'webm', 'mov'].includes(ext)) {
+      return `https://kemono.cr/data${path}`;
+    }
+    return `https://img.kemono.cr/thumbnail/data${path}`;
   } else if (currentSite === 'cum') {
     return `https://cum.st/data${path}`;
   }
