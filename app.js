@@ -976,7 +976,7 @@ async function loadMediaWithProgress(item) {
   if (type === 'zip') {
     progressOverlay.style.display = 'none';
     const zipBtn = document.createElement('button');
-    const filename = (item.dataset.path || url).split('/').pop() || 'Archive.zip';
+    const filename = item.dataset.originalName || (item.dataset.path || url).split('/').pop() || 'Archive.zip';
     zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Scanning contents...</small>`;
     zipBtn.style.background = 'rgba(0, 0, 0, 0.6)';
     zipBtn.style.backdropFilter = 'blur(10px)';
@@ -989,7 +989,7 @@ async function loadMediaWithProgress(item) {
     zipBtn.style.fontSize = '1.2rem';
     zipBtn.style.textAlign = 'center';
     
-    // Auto-fetch to get directory list and cache for instant opening
+    // Auto-fetch to get file list and cache for instant opening
     let cachedBlob = null;
     fetch(url)
       .then(async res => {
@@ -998,28 +998,22 @@ async function loadMediaWithProgress(item) {
         cachedBlob = await res.blob();
         const zip = await JSZip.loadAsync(cachedBlob);
         
-        const dirs = new Set();
-        let fileCount = 0;
+        const filenames = [];
         zip.forEach((relativePath, zipEntry) => {
           if (!zipEntry.dir && !relativePath.startsWith('__MACOSX/')) {
-             fileCount++;
-             const parts = relativePath.split('/');
-             if (parts.length > 1) {
-               dirs.add(parts[0]);
-             }
+             filenames.push(relativePath.split('/').pop());
           }
         });
         
-        let dirStr = '';
-        if (dirs.size > 0) {
-          const dirArray = Array.from(dirs);
-          dirStr = dirArray.slice(0, 3).join(', ');
-          if (dirArray.length > 3) dirStr += ` (+${dirArray.length - 3} more)`;
+        let contentStr = '';
+        if (filenames.length > 0) {
+          contentStr = filenames.slice(0, 3).join(', ');
+          if (filenames.length > 3) contentStr += ` (+${filenames.length - 3} more)`;
         } else {
-          dirStr = `${fileCount} files`;
+          contentStr = 'Empty archive';
         }
         
-        zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>${sizeStr} • ${dirStr}</small>`;
+        zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>${sizeStr} • ${contentStr}</small>`;
       })
       .catch(() => {
         zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Ready</small>`;
@@ -1265,17 +1259,17 @@ function createPostCard(post) {
   
   let allMedia = [];
   const supportedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg', 'mp4', 'webm', 'mov', 'zip'];
-  function categorizeFile(path) {
-    if (!path) return;
-    const ext = path.split('.').pop().toLowerCase();
-    if (supportedExts.includes(ext) && !allMedia.includes(path)) {
-      allMedia.push(path);
+  function categorizeFile(fileObj) {
+    if (!fileObj || !fileObj.path) return;
+    const ext = fileObj.path.split('.').pop().toLowerCase();
+    if (supportedExts.includes(ext) && !allMedia.some(m => m.path === fileObj.path)) {
+      allMedia.push({ path: fileObj.path, name: fileObj.name || fileObj.path.split('/').pop() });
     }
   }
 
-  if (post.file) categorizeFile(post.file.path);
+  if (post.file) categorizeFile(post.file);
   if (post.attachments && post.attachments.length > 0) {
-    post.attachments.forEach(att => categorizeFile(att ? att.path : null));
+    post.attachments.forEach(att => categorizeFile(att));
   }
 
   // Extract inline images from post content (very common in Announcements)
@@ -1286,8 +1280,8 @@ function createPostCard(post) {
     const inlineImgs = tmp.querySelectorAll('img');
     inlineImgs.forEach(img => {
       const src = img.getAttribute('src');
-      if (src && !allMedia.includes(src)) {
-        allMedia.push(src);
+      if (src && !allMedia.some(m => m.path === src)) {
+        allMedia.push({ path: src, name: src.split('/').pop() });
       }
       img.remove(); // Strip it from the text info overlay!
     });
@@ -1304,9 +1298,11 @@ function createPostCard(post) {
   }
 
   if (allMedia.length > 0) {
-    allMedia.forEach(mediaPath => {
+    allMedia.forEach(mediaObj => {
+      const mediaPath = mediaObj.path;
       const item = document.createElement('div');
       item.className = 'media-item';
+      item.dataset.originalName = mediaObj.name;
       
       const ext = mediaPath.split('.').pop().toLowerCase();
       const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
