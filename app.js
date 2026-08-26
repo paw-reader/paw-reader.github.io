@@ -219,54 +219,89 @@ function updateNavTabs(creator) {
         currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}`;
         fetchPosts();
       } else if (tab === 'Linked Accounts') {
-        feed.innerHTML = '';
-        
+        // Toggle dropdown anchored to the button
+        const existingDropdown = document.getElementById('linked-accounts-dropdown');
+        if (existingDropdown) { existingDropdown.remove(); return; }
+
+        const dropdown = document.createElement('div');
+        dropdown.id = 'linked-accounts-dropdown';
+        dropdown.style.cssText = `
+          position: absolute;
+          top: calc(100% + 6px);
+          left: 50%; transform: translateX(-50%);
+          background: rgba(0,0,0,0.85);
+          backdrop-filter: blur(12px);
+          border: 1px solid rgba(255,255,255,0.2);
+          border-radius: 14px;
+          padding: 8px;
+          display: flex; flex-direction: column; gap: 6px;
+          min-width: 180px;
+          z-index: 1100;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        `;
+
         if (creator.allPlatforms && creator.allPlatforms.length > 1) {
-          const list = document.createElement('div');
-          list.style.cssText = 'display:flex; flex-direction:column; gap:12px; padding:30px 20px; max-width:400px; margin:0 auto;';
-          
           creator.allPlatforms.forEach(p => {
+            const isActive = p.service === creator.service && p.id === creator.id;
             const row = document.createElement('button');
             row.style.cssText = `
-              display:flex; align-items:center; gap:14px; padding:14px 18px;
-              background:${getServiceColor(p.service)}; border:none; border-radius:12px;
-              color:#fff; font-size:1rem; cursor:pointer; text-align:left;
-              transition:filter 0.2s; font-weight:${p.service === creator.service && p.id === creator.id ? 'bold' : 'normal'};
-              outline: ${p.service === creator.service && p.id === creator.id ? '2px solid #fff' : 'none'};
+              display:flex; align-items:center; gap:10px;
+              padding: 8px 12px; border-radius: 10px; border: none;
+              background: ${isActive ? 'rgba(0,123,255,0.6)' : 'rgba(255,255,255,0.08)'};
+              color: #fff; font-size: 0.9rem; font-weight: ${isActive ? 'bold' : 'normal'};
+              cursor: pointer; text-align: left; width: 100%;
+              transition: background 0.15s;
             `;
-            row.onmouseenter = () => row.style.filter = 'brightness(1.2)';
-            row.onmouseleave = () => row.style.filter = '';
-            
+            row.onmouseenter = () => { if (!isActive) row.style.background = 'rgba(255,255,255,0.15)'; };
+            row.onmouseleave = () => { if (!isActive) row.style.background = 'rgba(255,255,255,0.08)'; };
+
             const icon = document.createElement('img');
             icon.src = `icons/${p.service}.svg`;
-            icon.style.cssText = 'width:28px; height:28px; border-radius:50%; background:#fff2; object-fit:contain;';
+            icon.style.cssText = 'width:20px; height:20px; object-fit:contain; flex-shrink:0;';
             icon.onerror = () => icon.style.display = 'none';
-            
-            const label = document.createElement('span');
-            label.innerHTML = `<strong>${p.service.charAt(0).toUpperCase() + p.service.slice(1)}</strong><br><span style="opacity:0.8; font-size:0.85rem;">${p.name}</span>`;
-            
-            const arrow = document.createElement('span');
-            arrow.textContent = p.service === creator.service && p.id === creator.id ? '✓' : '→';
-            arrow.style.cssText = 'margin-left:auto; font-size:1.1rem;';
-            
+
+            const labelWrap = document.createElement('span');
+            labelWrap.style.cssText = 'display:flex; flex-direction:column; line-height:1.3;';
+            labelWrap.innerHTML = `<span>${p.service.charAt(0).toUpperCase() + p.service.slice(1)}</span><span style="opacity:0.6;font-size:0.78rem;">${p.name}</span>`;
+
             row.appendChild(icon);
-            row.appendChild(label);
-            row.appendChild(arrow);
-            
+            row.appendChild(labelWrap);
+            if (isActive) {
+              const check = document.createElement('span');
+              check.textContent = '✓';
+              check.style.marginLeft = 'auto';
+              row.appendChild(check);
+            }
+
             row.addEventListener('click', () => {
-              // Switch to this service's feed
+              dropdown.remove();
               resetFeed();
               currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${p.service}/user/${p.id}/posts`;
               currentFeedCreatorName = p.name;
               updateNavTabs({ ...p, allPlatforms: creator.allPlatforms });
               fetchPosts();
             });
-            
-            list.appendChild(row);
+
+            dropdown.appendChild(row);
           });
-          
-          feed.appendChild(list);
         }
+
+        // Position relative to the clicked button
+        btn.style.position = 'relative';
+        btn.appendChild(dropdown);
+
+        // Close on outside click
+        setTimeout(() => {
+          document.addEventListener('click', function closeDropdown(e) {
+            if (!dropdown.contains(e.target) && e.target !== btn) {
+              dropdown.remove();
+              document.removeEventListener('click', closeDropdown);
+            }
+          });
+        }, 0);
+
+        // Don't reset feed or highlight this tab
+        return;
       } else if (tab === 'Similar Creators' || tab === 'Similar Artists') {
         if (currentSite === 'kemono' || currentSite === 'pawchive') {
           const tld = currentSite === 'kemono' ? 'su' : 'pw';
