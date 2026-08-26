@@ -1416,17 +1416,21 @@ async function fetchPosts() {
           // cum.st uses captionHtml for posts and contentHtml for DMs
           post.content = post.captionHtml || post.contentHtml || post.caption || post.content || '';
           if (!post.title && post.content) {
-            // Derive a short title from the first text line of the caption
+            // Derive a short title from the first text paragraph
             const tmp = document.createElement('div');
             tmp.innerHTML = post.content;
-            let firstLine = '';
+            let firstNode = null;
             for (const node of tmp.childNodes) {
               const text = (node.textContent || '').trim();
-              if (text) { firstLine = text; break; }
+              if (text) { firstNode = node; break; }
             }
-            if (!firstLine) firstLine = (tmp.textContent || '').trim();
-            post.title = firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine;
-            // Leave post.content intact so the description still shows below
+            if (firstNode) {
+              const firstLine = (firstNode.textContent || '').trim();
+              post.title = firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine;
+              // Remove the first paragraph from content so it doesn't duplicate in description
+              firstNode.remove();
+              post.content = tmp.innerHTML.trim();
+            }
           }
           if (!post.file && post.attachments && post.attachments.length > 0) {
              const first = post.attachments.find(a => a.storageKey && a.variants && a.variants.length > 0);
