@@ -210,6 +210,16 @@ if (siteSelector) {
         contentFilter.value = 'all'; // Default to all for Kemono/Pawchive
       }
     }
+    
+    const creatorsTitle = document.getElementById('creators-title');
+    if (creatorsTitle) {
+      const displayNames = {
+        pawchive: 'Pawchive',
+        kemono: 'Kemono',
+        cum: 'Coomer'
+      };
+      creatorsTitle.textContent = `${displayNames[currentSite] || 'Selected'} creators`;
+    }
   }
   
   updateSiteSpecificUI();
