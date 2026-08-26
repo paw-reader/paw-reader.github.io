@@ -224,6 +224,7 @@ const creatorsPerPage = 50;
 const searchInput = document.getElementById('creator-search');
 const sortSelect = document.getElementById('creator-sort');
 const serviceFilterSelect = document.getElementById('creator-service-filter');
+const contentFilterSelect = document.getElementById('creator-content-filter');
 const paginationContainer = document.getElementById('creator-pagination');
 
 let searchTimeout;
@@ -269,6 +270,13 @@ if(sortSelect) {
 
 if(serviceFilterSelect) {
   serviceFilterSelect.addEventListener('change', () => {
+    creatorPage = 1;
+    filterAndSortCreators();
+  });
+}
+
+if(contentFilterSelect) {
+  contentFilterSelect.addEventListener('change', () => {
     creatorPage = 1;
     filterAndSortCreators();
   });
@@ -398,11 +406,24 @@ function filterAndSortCreators() {
   const query = (searchInput ? searchInput.value.toLowerCase() : '');
   const sort = (sortSelect ? sortSelect.value : 'followers-desc');
   const serviceFilter = (serviceFilterSelect ? serviceFilterSelect.value : 'all');
+  const contentFilter = (contentFilterSelect ? contentFilterSelect.value : 'content');
   
   filteredCreators = allCreators.filter(c => {
     const matchesQuery = c.name.toLowerCase().includes(query);
     const matchesService = serviceFilter === 'all' || c.service === serviceFilter || (c.allPlatforms && c.allPlatforms.some(p => p.service === serviceFilter));
-    return matchesQuery && matchesService;
+    
+    let hasContent = false;
+    if (currentSite === 'cum') {
+       hasContent = c.postCount > 0 || c.updated !== 0;
+    } else {
+       hasContent = c.updated !== 0;
+    }
+    
+    let matchesContent = true;
+    if (contentFilter === 'content') matchesContent = hasContent;
+    else if (contentFilter === 'empty') matchesContent = !hasContent;
+    
+    return matchesQuery && matchesService && matchesContent;
   });
   
   filteredCreators.sort((a, b) => {
