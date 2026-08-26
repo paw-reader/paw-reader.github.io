@@ -977,11 +977,11 @@ async function loadMediaWithProgress(item) {
     progressOverlay.style.display = 'none';
     const zipBtn = document.createElement('button');
     const filename = (item.dataset.path || url).split('/').pop() || 'Archive.zip';
-    zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Loading size...</small>`;
+    zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Scanning contents...</small>`;
     zipBtn.style.background = 'rgba(0, 0, 0, 0.6)';
     zipBtn.style.backdropFilter = 'blur(10px)';
     zipBtn.style.color = 'white';
-    zipBtn.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    zipBtn.style.border = 'none';
     zipBtn.style.padding = '20px 30px';
     zipBtn.style.borderRadius = '15px';
     zipBtn.style.cursor = 'pointer';
@@ -989,23 +989,45 @@ async function loadMediaWithProgress(item) {
     zipBtn.style.fontSize = '1.2rem';
     zipBtn.style.textAlign = 'center';
     
-    fetch(url, { method: 'HEAD' })
-      .then(res => {
+    // Auto-fetch to get directory list and cache for instant opening
+    let cachedBlob = null;
+    fetch(url)
+      .then(async res => {
         const size = res.headers.get('content-length');
-        if (size) {
-          const sizeStr = formatBytes(parseInt(size, 10));
-          zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>${sizeStr} • Image Archive</small>`;
+        const sizeStr = size ? formatBytes(parseInt(size, 10)) : 'Unknown size';
+        cachedBlob = await res.blob();
+        const zip = await JSZip.loadAsync(cachedBlob);
+        
+        const dirs = new Set();
+        let fileCount = 0;
+        zip.forEach((relativePath, zipEntry) => {
+          if (!zipEntry.dir && !relativePath.startsWith('__MACOSX/')) {
+             fileCount++;
+             const parts = relativePath.split('/');
+             if (parts.length > 1) {
+               dirs.add(parts[0]);
+             }
+          }
+        });
+        
+        let dirStr = '';
+        if (dirs.size > 0) {
+          const dirArray = Array.from(dirs);
+          dirStr = dirArray.slice(0, 3).join(', ');
+          if (dirArray.length > 3) dirStr += ` (+${dirArray.length - 3} more)`;
         } else {
-          zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Image Archive</small>`;
+          dirStr = `${fileCount} files`;
         }
+        
+        zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>${sizeStr} • ${dirStr}</small>`;
       })
       .catch(() => {
-        zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Image Archive</small>`;
+        zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Ready</small>`;
       });
     
     zipBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      openZipGallery(url, filename);
+      openZipGallery(url, filename, cachedBlob);
     });
     
     // Center it in the media item perfectly
@@ -1813,44 +1835,47 @@ zipViewer.addEventListener('click', (e) => {
   }
 });
 
-async function openZipGallery(zipUrl, filename) {
+async function openZipGallery(zipUrl, filename, cachedBlob = null) {
   zipViewer.classList.remove('hidden');
   zipTitle.textContent = filename;
   zipIndicator.textContent = '';
   zipContent.innerHTML = '<div id="zip-progress-text" style="color:white; margin: auto; text-align: center;">Connecting...</div>';
   
   try {
-    const response = await fetch(zipUrl);
-    if (!response.ok) throw new Error('Network response was not ok');
+    let blob = cachedBlob;
     
-    const contentLength = response.headers.get('content-length');
-    const total = parseInt(contentLength, 10);
-    let loaded = 0;
-    const startTime = Date.now();
-    const reader = response.body.getReader();
-    const chunks = [];
-    
-    while(true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      loaded += value.length;
+    if (!blob) {
+      const response = await fetch(zipUrl);
+      if (!response.ok) throw new Error('Network response was not ok');
       
-      const progressText = document.getElementById('zip-progress-text');
-      if (progressText && total) {
-        const elapsed = (Date.now() - startTime) / 1000;
-        const speed = elapsed > 0 ? formatBytes(loaded / elapsed) + '/s' : '...';
-        const percent = Math.round((loaded / total) * 100);
-        progressText.innerHTML = `Downloading Archive...<br><br><span style="font-size:1.5rem">${percent}%</span><br><br>${formatBytes(loaded)} / ${formatBytes(total)}<br>${speed}`;
-      } else if (progressText) {
-        progressText.innerHTML = `Downloading Archive...<br><br>${formatBytes(loaded)} downloaded`;
+      const contentLength = response.headers.get('content-length');
+      const total = parseInt(contentLength, 10);
+      let loaded = 0;
+      const startTime = Date.now();
+      const reader = response.body.getReader();
+      const chunks = [];
+      
+      while(true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.length;
+        
+        const progressText = document.getElementById('zip-progress-text');
+        if (progressText && total) {
+          const elapsed = (Date.now() - startTime) / 1000;
+          const speed = elapsed > 0 ? formatBytes(loaded / elapsed) + '/s' : '...';
+          const percent = Math.round((loaded / total) * 100);
+          progressText.innerHTML = `Downloading Archive...<br><br><span style="font-size:1.5rem">${percent}%</span><br><br>${formatBytes(loaded)} / ${formatBytes(total)}<br>${speed}`;
+        } else if (progressText) {
+          progressText.innerHTML = `Downloading Archive...<br><br>${formatBytes(loaded)} downloaded`;
+        }
       }
+      blob = new Blob(chunks);
     }
     
     const progressText = document.getElementById('zip-progress-text');
     if (progressText) progressText.innerHTML = 'Extracting files...';
-    
-    const blob = new Blob(chunks);
     const zip = await JSZip.loadAsync(blob);
     
     zipContent.innerHTML = '';
