@@ -274,6 +274,46 @@ if(serviceFilterSelect) {
   });
 }
 
+let isSyncing = false;
+async function syncCumCreators() {
+  if (isSyncing) return;
+  isSyncing = true;
+  let offset = 0;
+  try {
+    const initRes = await fetch(`${PROXY_URL}/cum/api/v1/creators`);
+    const initData = await initRes.json();
+    const total = initData.total || 14000;
+    
+    while (offset < total && currentSite === 'cum') {
+      const fetchPromises = [];
+      for (let i = 0; i < 5 && offset < total; i++) {
+        fetchPromises.push(fetch(`${PROXY_URL}/cum/api/v1/creators?limit=50&o=${offset}`).then(r => r.json()));
+        offset += 50;
+      }
+      const results = await Promise.allSettled(fetchPromises);
+      let added = false;
+      for (const res of results) {
+        if (res.status === 'fulfilled' && res.value.creators) {
+          const existingIds = new Set(allCreators.map(c => c.id));
+          res.value.creators.forEach(c => {
+            if (!existingIds.has(c.id)) {
+              c.allPlatforms = [c];
+              allCreators.push(c);
+              added = true;
+            }
+          });
+        }
+      }
+      if (added && currentSite === 'cum' && document.getElementById('creators-view') && !document.getElementById('creators-view').classList.contains('hidden')) {
+        filterAndSortCreators(); // Update the view live as creators pour in!
+      }
+    }
+  } catch(e) {
+    console.warn("Background sync failed", e);
+  }
+  isSyncing = false;
+}
+
 async function loadCreators() {
   if (allCreators.length > 0 && loadedCreatorsSite === currentSite) return;
   loadedCreatorsSite = currentSite;
@@ -297,6 +337,8 @@ async function loadCreators() {
           console.warn(`Failed to fetch ${s} creators for cum.st`, e);
         }
       }
+      // Start background sync for the remaining ~13,500 creators
+      syncCumCreators();
     } else {
       const res = await fetch(`${PROXY_URL}/${currentSite}/api/v1/creators`);
       if (!res.ok) throw new Error('Failed to fetch creators: ' + res.status + ' ' + res.statusText);
