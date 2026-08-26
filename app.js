@@ -128,12 +128,12 @@ const settingsMenu = document.getElementById('settings-menu');
 if (navSettings && settingsMenu) {
   navSettings.addEventListener('click', (e) => {
     e.stopPropagation();
-    settingsMenu.classList.toggle('hidden');
+    settingsMenu.classList.toggle('active');
   });
   
   document.addEventListener('click', (e) => {
     if (!settingsMenu.contains(e.target) && e.target !== navSettings) {
-      settingsMenu.classList.add('hidden');
+      settingsMenu.classList.remove('active');
     }
   });
 }

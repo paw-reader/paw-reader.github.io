@@ -404,7 +404,42 @@ body {
 }
 
 #nav-back.hidden { display: none !important; }
-#settings-menu.hidden { display: none !important; }
+#settings-menu {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%) translateX(100%);
+  background: #222;
+  border: 1px solid #444;
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  padding: 20px;
+  z-index: 2000;
+  min-width: 200px;
+  box-shadow: -4px 0 15px rgba(0,0,0,0.5);
+  transition: transform 0.3s ease-in-out;
+}
+#settings-menu.active {
+  transform: translateY(-50%) translateX(0);
+}
+#settings-menu h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  text-align: center;
+  border-bottom: 1px solid #444;
+  padding-bottom: 10px;
+}
+#settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+#settings-content p {
+  margin: 0;
+  color: #aaa;
+  text-align: center;
+  font-size: 0.9rem;
+}
 
 
 .info-toggle-btn {
