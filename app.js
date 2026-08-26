@@ -205,32 +205,30 @@ function updateNavTabs(creator) {
     return true;
   });
   
-  tabs.forEach((tab, index) => {
+   tabs.forEach((tab, index) => {
     const btn = document.createElement('button');
     btn.textContent = tab;
     if (index === 0) btn.style.background = 'rgba(0, 123, 255, 0.6)';
     
-    btn.addEventListener('click', () => {
-      Array.from(navTabs.children).forEach(c => c.style.background = '');
-      btn.style.background = 'rgba(0, 123, 255, 0.6)';
-      
-      resetFeed();
-      if (tab === 'Posts' || tab === 'DMs' || tab === 'Announcements') {
-        currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}`;
-        fetchPosts();
-      } else if (tab === 'Linked Accounts') {
-        // Toggle dropdown anchored to the button
+    btn.addEventListener('click', (e) => {
+      // Linked Accounts is a dropdown — handle entirely separately
+      if (tab === 'Linked Accounts') {
         const existingDropdown = document.getElementById('linked-accounts-dropdown');
         if (existingDropdown) { existingDropdown.remove(); return; }
 
         const dropdown = document.createElement('div');
         dropdown.id = 'linked-accounts-dropdown';
+
+        // Position below the button using fixed coords so it's outside btn's stacking context
+        const btnRect = btn.getBoundingClientRect();
         dropdown.style.cssText = `
-          position: absolute;
-          top: calc(100% + 6px);
-          left: 50%; transform: translateX(-50%);
+          position: fixed;
+          top: ${btnRect.bottom + 6}px;
+          left: ${btnRect.left + btnRect.width / 2}px;
+          transform: translateX(-50%);
           background: rgba(0,0,0,0.85);
           backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
           border: 1px solid rgba(255,255,255,0.2);
           border-radius: 14px;
           padding: 8px;
@@ -252,7 +250,7 @@ function updateNavTabs(creator) {
               cursor: pointer; text-align: left; width: 100%;
               transition: background 0.15s;
             `;
-            row.onmouseenter = () => { if (!isActive) row.style.background = 'rgba(255,255,255,0.15)'; };
+            row.onmouseenter = () => { if (!isActive) row.style.background = 'rgba(255,255,255,0.18)'; };
             row.onmouseleave = () => { if (!isActive) row.style.background = 'rgba(255,255,255,0.08)'; };
 
             const icon = document.createElement('img');
@@ -273,8 +271,10 @@ function updateNavTabs(creator) {
               row.appendChild(check);
             }
 
-            row.addEventListener('click', () => {
+            row.addEventListener('click', (ev) => {
+              ev.stopPropagation(); // prevent bubbling to btn which would re-toggle
               dropdown.remove();
+              document.removeEventListener('mousedown', outsideClose);
               resetFeed();
               currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${p.service}/user/${p.id}/posts`;
               currentFeedCreatorName = p.name;
@@ -286,22 +286,27 @@ function updateNavTabs(creator) {
           });
         }
 
-        // Position relative to the clicked button
-        btn.style.position = 'relative';
-        btn.appendChild(dropdown);
+        document.body.appendChild(dropdown);
 
-        // Close on outside click
-        setTimeout(() => {
-          document.addEventListener('click', function closeDropdown(e) {
-            if (!dropdown.contains(e.target) && e.target !== btn) {
-              dropdown.remove();
-              document.removeEventListener('click', closeDropdown);
-            }
-          });
-        }, 0);
-
-        // Don't reset feed or highlight this tab
+        // Close on mousedown outside (fires before click, more reliable)
+        function outsideClose(ev) {
+          if (!dropdown.contains(ev.target) && ev.target !== btn) {
+            dropdown.remove();
+            document.removeEventListener('mousedown', outsideClose);
+          }
+        }
+        setTimeout(() => document.addEventListener('mousedown', outsideClose), 0);
         return;
+      }
+
+      // For all other tabs: highlight and reset feed
+      Array.from(navTabs.children).forEach(c => c.style.background = '');
+      btn.style.background = 'rgba(0, 123, 255, 0.6)';
+      
+      resetFeed();
+      if (tab === 'Posts' || tab === 'DMs' || tab === 'Announcements') {
+        currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}`;
+        fetchPosts();
       } else if (tab === 'Similar Creators' || tab === 'Similar Artists') {
         if (currentSite === 'kemono' || currentSite === 'pawchive') {
           const tld = currentSite === 'kemono' ? 'su' : 'pw';
