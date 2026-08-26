@@ -198,9 +198,9 @@ function updateNavTabs(creator) {
   
   // Filter tabs based on creator metadata if available
   tabs = tabs.filter(tab => {
-    // Only strictly hide if the count is explicitly 0 (since Kemono returns undefined for these counts)
-    if (tab === 'DMs' && creator.dmCount === 0) return false;
-    if (tab === 'Posts' && creator.postCount === 0) return false;
+    // Only strictly hide if the count is explicitly 0 or null (since Kemono returns undefined for these counts)
+    if (tab === 'DMs' && (creator.dmCount === 0 || creator.dmCount === null)) return false;
+    if (tab === 'Posts' && (creator.postCount === 0 || creator.postCount === null)) return false;
     if (tab === 'Linked Accounts' && (!creator.allPlatforms || creator.allPlatforms.length <= 1)) return false;
     return true;
   });
@@ -237,7 +237,10 @@ function updateNavTabs(creator) {
         
         const endpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/similar`;
         fetch(endpoint)
-          .then(res => res.json())
+          .then(res => {
+            if (!res.ok) throw new Error('Not found');
+            return res.json();
+          })
           .then(data => {
             feed.innerHTML = '';
             const similarCreators = data.creators || (Array.isArray(data) ? data : null);
