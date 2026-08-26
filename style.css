@@ -66,7 +66,7 @@ body {
   padding: 8px 16px;
   border-radius: 20px;
 }
-#nav-back, #nav-settings, #nav-home {
+#nav-back, #nav-info, #nav-settings, #nav-home {
   width: 36px;
   height: 36px;
   padding: 0;
@@ -403,7 +403,7 @@ body {
   font-family: monospace;
 }
 
-#nav-back.hidden { display: none !important; }
+#nav-back.hidden, #nav-info.hidden { display: none !important; }
 #settings-menu {
   position: fixed;
   top: 50%;

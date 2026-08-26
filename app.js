@@ -130,7 +130,26 @@ document.addEventListener('mousemove', (e) => {
 
 const navHome = document.getElementById('nav-home');
 const navBack = document.getElementById('nav-back');
+const navInfo = document.getElementById('nav-info');
 const navSettings = document.getElementById('nav-settings');
+
+if (navInfo) {
+  navInfo.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // find the currently centered post-card
+    const el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+    if (el) {
+      const card = el.closest('.post-card');
+      if (card) {
+        const info = card.querySelector('.post-info');
+        if (info) {
+          info.classList.toggle('expanded');
+          updateNavVisibility();
+        }
+      }
+    }
+  });
+}
 const settingsMenu = document.getElementById('settings-menu');
 
 if (navSettings && settingsMenu) {
@@ -446,6 +465,7 @@ function showView(viewElement, showNav = true, showToggle = false) {
   
   if (viewElement === feedView) {
     nav.classList.add('auto-hide');
+    if (navInfo) navInfo.classList.remove('hidden');
     // Only show creator tabs when viewing a specific creator — not the global latest feed
     if (navTabs) {
       if (currentFeedCreatorName) {
@@ -459,6 +479,7 @@ function showView(viewElement, showNav = true, showToggle = false) {
     nav.classList.remove('auto-hide');
     nav.classList.remove('visible');
     if (navTabs) navTabs.classList.add('hidden');
+    if (navInfo) navInfo.classList.add('hidden');
   }
 }
 
