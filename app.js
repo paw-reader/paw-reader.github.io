@@ -233,8 +233,13 @@ function updateNavTabs(creator) {
         }
         feed.appendChild(grid);
       } else if (tab === 'Similar Creators' || tab === 'Similar Artists') {
-        feed.innerHTML = '<div style="text-align:center; padding: 40px; color: #aaa;">Loading similar creators...</div>';
+        if (currentSite === 'kemono' || currentSite === 'pawchive') {
+          const tld = currentSite === 'kemono' ? 'su' : 'pw';
+          window.open(`https://${currentSite}.${tld}/${creator.service}/user/${creator.id}/recommended`, '_blank');
+          return;
+        }
         
+        feed.innerHTML = '<div style="text-align:center; padding: 40px; color: #aaa;">Loading similar creators...</div>';
         const endpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/similar`;
         fetch(endpoint)
           .then(res => {
@@ -287,6 +292,19 @@ function updateNavTabs(creator) {
         feed.appendChild(placeholder);
       }
     });
+    
+    // For Kemono/Pawchive, we don't know upfront if DMs/Announcements exist. Hide initially and check in background.
+    if ((currentSite === 'kemono' || currentSite === 'pawchive') && (tab === 'DMs' || tab === 'Announcements')) {
+      btn.style.display = 'none';
+      fetch(`${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}?limit=1`)
+        .then(res => res.json())
+        .then(data => {
+          const arr = data.posts || (Array.isArray(data) ? data : []);
+          if (arr.length > 0) {
+            btn.style.display = '';
+          }
+        }).catch(() => {}); // silently ignore 404s, leaving it hidden
+    }
     
     navTabs.appendChild(btn);
   });
@@ -1308,7 +1326,13 @@ async function fetchPosts() {
       }
     }
   } catch (error) {
-    console.error("Error fetching posts:", error);
+    if (error.message.includes('404')) {
+      if (offset === 0) {
+        feed.innerHTML = '<div style="text-align:center; padding: 40px; color: #aaa;">No items found.</div>';
+      }
+    } else {
+      console.error("Error fetching posts:", error);
+    }
   } finally {
     isFetching = false;
     feedLoading.classList.remove('active'); stopProgress();
