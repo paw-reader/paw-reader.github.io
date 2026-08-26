@@ -151,7 +151,8 @@ if (navSettings && settingsMenu) {
   });
   
   document.addEventListener('click', (e) => {
-    if (!settingsMenu.contains(e.target) && e.target !== navSettings) {
+    const isZipSettings = document.getElementById('zip-settings-viewer') && e.target === document.getElementById('zip-settings-viewer');
+    if (!settingsMenu.contains(e.target) && e.target !== navSettings && !isZipSettings) {
       settingsMenu.classList.remove('active');
     }
   });
@@ -174,6 +175,23 @@ if (settingHideNoMedia) {
     if (feedView && feedView.classList.contains('active')) {
       resetFeed();
       fetchPosts();
+    }
+  });
+}
+
+window.pawAnimationsDisabled = localStorage.getItem('paw_animations_disabled') === 'true';
+if (window.pawAnimationsDisabled) document.body.classList.add('no-animations');
+
+const settingDisableAnimations = document.getElementById('setting-disable-animations');
+if (settingDisableAnimations) {
+  settingDisableAnimations.checked = window.pawAnimationsDisabled;
+  settingDisableAnimations.addEventListener('change', (e) => {
+    window.pawAnimationsDisabled = e.target.checked;
+    localStorage.setItem('paw_animations_disabled', window.pawAnimationsDisabled);
+    if (window.pawAnimationsDisabled) {
+      document.body.classList.add('no-animations');
+    } else {
+      document.body.classList.remove('no-animations');
     }
   });
 }
@@ -1350,7 +1368,7 @@ function createPostCard(post) {
       carousel.dataset.targetScroll = 0;
       carousel.dataset.scrollDir = 'left';
       carousel.style.scrollSnapType = 'none';
-      carousel.scrollTo({ left: 0, behavior: 'smooth' });
+      carousel.scrollTo({ left: 0, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
     });
     
     setTimeout(() => {
@@ -1465,7 +1483,7 @@ function createPostCard(post) {
         feed.dataset.targetScroll = target;
         feed.dataset.scrollDir = 'up';
         feed.style.scrollSnapType = 'none';
-        feed.scrollTo({ top: target, behavior: 'smooth' });
+        feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
         return;
       }
       if (y > h * 0.85) {
@@ -1475,7 +1493,7 @@ function createPostCard(post) {
         feed.dataset.targetScroll = target;
         feed.dataset.scrollDir = 'down';
         feed.style.scrollSnapType = 'none';
-        feed.scrollTo({ top: target, behavior: 'smooth' });
+        feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
         return;
       }
       if (x < w * 0.20 && allMedia.length > 1) {
@@ -1490,7 +1508,7 @@ function createPostCard(post) {
         carousel.dataset.targetScroll = target;
         carousel.dataset.scrollDir = 'left';
         carousel.style.scrollSnapType = 'none';
-        carousel.scrollTo({ left: target, behavior: isWrap ? 'auto' : 'smooth' });
+        carousel.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
         return;
       }
       if (x > w * 0.80 && allMedia.length > 1) {
@@ -1505,7 +1523,7 @@ function createPostCard(post) {
         carousel.dataset.targetScroll = target;
         carousel.dataset.scrollDir = 'right';
         carousel.style.scrollSnapType = 'none';
-        carousel.scrollTo({ left: target, behavior: isWrap ? 'auto' : 'smooth' });
+        carousel.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
         return;
       }
     }
@@ -1702,8 +1720,8 @@ document.addEventListener('mouseup', (e) => {
       const h = window.innerHeight;
       
       if (Math.abs(dy) > Math.abs(dx)) {
-        if (dy > 50) feed.scrollBy({ top: -h, behavior: 'smooth' });
-        else feed.scrollBy({ top: h, behavior: 'smooth' });
+        if (dy > 50) feed.scrollBy({ top: -h, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
+        else feed.scrollBy({ top: h, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
       } else if (carousel) {
         let target = Math.round(carousel.scrollLeft / w) * w;
         let isWrap = false;
@@ -1722,7 +1740,7 @@ document.addEventListener('mouseup', (e) => {
         }
         carousel.dataset.targetScroll = target;
         carousel.style.scrollSnapType = 'none';
-        carousel.scrollTo({ left: target, behavior: 'smooth' });
+        carousel.scrollTo({ left: target, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
       }
     }
   }
@@ -1748,7 +1766,7 @@ document.addEventListener('keydown', (e) => {
       zipContent.dataset.targetScroll = target;
       zipContent.dataset.scrollDir = 'left';
       zipContent.style.scrollSnapType = 'none';
-      zipContent.scrollTo({ left: target, behavior: isWrap ? 'auto' : 'smooth' });
+      zipContent.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
     } else if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
       e.preventDefault();
       let target = zipContent.dataset.targetScroll !== undefined ? parseFloat(zipContent.dataset.targetScroll) : Math.round(zipContent.scrollLeft / w) * w;
@@ -1761,7 +1779,7 @@ document.addEventListener('keydown', (e) => {
       zipContent.dataset.targetScroll = target;
       zipContent.dataset.scrollDir = 'right';
       zipContent.style.scrollSnapType = 'none';
-      zipContent.scrollTo({ left: target, behavior: isWrap ? 'auto' : 'smooth' });
+      zipContent.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
     }
     return;
   }
@@ -1775,7 +1793,7 @@ document.addEventListener('keydown', (e) => {
     feed.dataset.targetScroll = target;
     feed.dataset.scrollDir = 'up';
     feed.style.scrollSnapType = 'none';
-    feed.scrollTo({ top: target, behavior: 'smooth' });
+    feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
   } 
   else if (e.key === 'ArrowDown' || e.key.toLowerCase() === 's') {
     e.preventDefault();
@@ -1784,7 +1802,7 @@ document.addEventListener('keydown', (e) => {
     feed.dataset.targetScroll = target;
     feed.dataset.scrollDir = 'down';
     feed.style.scrollSnapType = 'none';
-    feed.scrollTo({ top: target, behavior: 'smooth' });
+    feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
   }
   else if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a' || e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
     const currentIndex = Math.round(feed.scrollTop / h);
@@ -1806,7 +1824,7 @@ document.addEventListener('keydown', (e) => {
       carousel.dataset.targetScroll = target;
       carousel.dataset.scrollDir = 'left';
       carousel.style.scrollSnapType = 'none';
-      carousel.scrollTo({ left: target, behavior: isWrap ? 'auto' : 'smooth' });
+      carousel.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
     } 
     else if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
       let target = carousel.dataset.targetScroll !== undefined ? parseFloat(carousel.dataset.targetScroll) : Math.round(carousel.scrollLeft / w) * w;
@@ -1819,7 +1837,7 @@ document.addEventListener('keydown', (e) => {
       carousel.dataset.targetScroll = target;
       carousel.dataset.scrollDir = 'right';
       carousel.style.scrollSnapType = 'none';
-      carousel.scrollTo({ left: target, behavior: isWrap ? 'auto' : 'smooth' });
+      carousel.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
     }
   }
 });
@@ -1838,6 +1856,14 @@ if (closeZipViewer) {
     zipContent.innerHTML = '';
     currentZipObjectUrls.forEach(url => URL.revokeObjectURL(url));
     currentZipObjectUrls = [];
+  });
+}
+
+const zipSettingsViewer = document.getElementById('zip-settings-viewer');
+if (zipSettingsViewer && settingsMenu) {
+  zipSettingsViewer.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settingsMenu.classList.toggle('active');
   });
 }
 
@@ -1861,7 +1887,7 @@ if (zipIndicator) {
     zipContent.dataset.targetScroll = 0;
     zipContent.dataset.scrollDir = 'left';
     zipContent.style.scrollSnapType = 'none';
-    zipContent.scrollTo({ left: 0, behavior: 'smooth' });
+    zipContent.scrollTo({ left: 0, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
   });
 }
 
@@ -1911,7 +1937,7 @@ zipViewer.addEventListener('click', (e) => {
     zipContent.dataset.targetScroll = target;
     zipContent.dataset.scrollDir = 'left';
     zipContent.style.scrollSnapType = 'none';
-    zipContent.scrollTo({ left: target, behavior: isWrap ? 'auto' : 'smooth' });
+    zipContent.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
   } else if (x > w * 0.8) { // right 20%
     let target = zipContent.dataset.targetScroll !== undefined ? parseFloat(zipContent.dataset.targetScroll) : Math.round(zipContent.scrollLeft / w) * w;
     target = target + w;
@@ -1923,7 +1949,7 @@ zipViewer.addEventListener('click', (e) => {
     zipContent.dataset.targetScroll = target;
     zipContent.dataset.scrollDir = 'right';
     zipContent.style.scrollSnapType = 'none';
-    zipContent.scrollTo({ left: target, behavior: isWrap ? 'auto' : 'smooth' });
+    zipContent.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
   }
 });
 

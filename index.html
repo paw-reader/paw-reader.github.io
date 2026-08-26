@@ -24,6 +24,7 @@
   <div id="zip-viewer" class="hidden" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 2000; display: flex; flex-direction: column;">
     <div id="zip-nav" class="hidden-nav" style="transition: opacity 0.3s; opacity: 0; pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100px; z-index: 2010;">
       <button id="close-zip-viewer" style="pointer-events: auto; position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255,255,255,0.2); width: 36px; height: 36px; border-radius: 20px; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">⬅️</button>
+      <button id="zip-settings-viewer" style="pointer-events: auto; position: absolute; top: 20px; right: 70px; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255,255,255,0.2); width: 36px; height: 36px; border-radius: 20px; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">⚙️</button>
       <button id="zip-home-viewer" style="pointer-events: auto; position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255,255,255,0.2); width: 36px; height: 36px; border-radius: 20px; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">🏠</button>
     </div>
     <div id="zip-indicator" style="pointer-events: auto; position: absolute; top: 20px; right: 20px; z-index: 2010; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 5px 12px; border-radius: 15px; font-size: 0.9rem; cursor: pointer; transition: transform 0.3s;">1 / 1</div>
@@ -39,6 +40,10 @@
       <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
         <span>Hide empty posts (no media)</span>
         <input type="checkbox" id="setting-hide-no-media" style="width: 18px; height: 18px; cursor: pointer;">
+      </label>
+      <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-top: 15px;">
+        <span>Disable animations</span>
+        <input type="checkbox" id="setting-disable-animations" style="width: 18px; height: 18px; cursor: pointer;">
       </label>
     </div>
   </div>
