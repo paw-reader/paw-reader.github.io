@@ -223,6 +223,7 @@ const creatorsPerPage = 50;
 
 const searchInput = document.getElementById('creator-search');
 const sortSelect = document.getElementById('creator-sort');
+const serviceFilterSelect = document.getElementById('creator-service-filter');
 const paginationContainer = document.getElementById('creator-pagination');
 
 if(searchInput) {
@@ -234,6 +235,13 @@ if(searchInput) {
 
 if(sortSelect) {
   sortSelect.addEventListener('change', () => {
+    creatorPage = 1;
+    filterAndSortCreators();
+  });
+}
+
+if(serviceFilterSelect) {
+  serviceFilterSelect.addEventListener('change', () => {
     creatorPage = 1;
     filterAndSortCreators();
   });
@@ -271,6 +279,29 @@ async function loadCreators() {
       };
     });
     
+    if (serviceFilterSelect) {
+      const services = new Set();
+      allCreators.forEach(c => {
+        services.add(c.service);
+        if (c.allPlatforms) c.allPlatforms.forEach(p => services.add(p.service));
+      });
+      
+      // Preserve current selection if possible
+      const currentSelection = serviceFilterSelect.value;
+      
+      serviceFilterSelect.innerHTML = '<option value="all">All Services</option>';
+      Array.from(services).sort().forEach(service => {
+        const option = document.createElement('option');
+        option.value = service;
+        option.textContent = service.charAt(0).toUpperCase() + service.slice(1);
+        serviceFilterSelect.appendChild(option);
+      });
+      
+      if (services.has(currentSelection)) {
+        serviceFilterSelect.value = currentSelection;
+      }
+    }
+    
     filterAndSortCreators();
   } catch (error) {
     console.error("Error fetching creators:", error);
@@ -283,8 +314,13 @@ async function loadCreators() {
 function filterAndSortCreators() {
   const query = (searchInput ? searchInput.value.toLowerCase() : '');
   const sort = (sortSelect ? sortSelect.value : 'followers-desc');
+  const serviceFilter = (serviceFilterSelect ? serviceFilterSelect.value : 'all');
   
-  filteredCreators = allCreators.filter(c => c.name.toLowerCase().includes(query));
+  filteredCreators = allCreators.filter(c => {
+    const matchesQuery = c.name.toLowerCase().includes(query);
+    const matchesService = serviceFilter === 'all' || c.service === serviceFilter || (c.allPlatforms && c.allPlatforms.some(p => p.service === serviceFilter));
+    return matchesQuery && matchesService;
+  });
   
   filteredCreators.sort((a, b) => {
     if (sort === 'followers-desc') {
