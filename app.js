@@ -173,6 +173,28 @@ if (siteSelector) {
         contentFilter.value = 'all'; // Default to all for Kemono/Pawchive
       }
     }
+    
+    const navTabs = document.getElementById('nav-tabs');
+    if (navTabs) {
+      navTabs.innerHTML = '';
+      let tabs = [];
+      if (currentSite === 'kemono' || currentSite === 'pawchive') {
+        tabs = ['Posts', 'Announcements', 'Tags', 'DMs', 'Linked Accounts', 'Similar Artists'];
+      } else if (currentSite === 'cum') {
+        tabs = ['Posts', 'DMs', 'Similar Creators'];
+      }
+      
+      tabs.forEach((tab, index) => {
+        const btn = document.createElement('button');
+        btn.textContent = tab;
+        if (index === 0) btn.style.background = 'rgba(0, 123, 255, 0.6)'; // Highlight first tab
+        btn.addEventListener('click', () => {
+          Array.from(navTabs.children).forEach(c => c.style.background = '');
+          btn.style.background = 'rgba(0, 123, 255, 0.6)';
+        });
+        navTabs.appendChild(btn);
+      });
+    }
   }
   
   updateSiteSpecificUI();
@@ -224,11 +246,16 @@ function showView(viewElement, showNav = true, showToggle = false) {
   if (showNav) nav.classList.remove('hidden');
   else nav.classList.add('hidden');
   
+  const navTabs = document.getElementById('nav-tabs');
+  
   if (viewElement === feedView) {
     nav.classList.add('auto-hide');
+    if (navTabs) navTabs.classList.remove('hidden');
     updateNavVisibility();
   } else {
     nav.classList.remove('auto-hide');
+    nav.classList.remove('visible');
+    if (navTabs) navTabs.classList.add('hidden');
   }
 }
 
