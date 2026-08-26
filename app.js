@@ -122,6 +122,21 @@ document.addEventListener('mousemove', (e) => {
 
 const navHome = document.getElementById('nav-home');
 const navBack = document.getElementById('nav-back');
+const navSettings = document.getElementById('nav-settings');
+const settingsMenu = document.getElementById('settings-menu');
+
+if (navSettings && settingsMenu) {
+  navSettings.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settingsMenu.classList.toggle('hidden');
+  });
+  
+  document.addEventListener('click', (e) => {
+    if (!settingsMenu.contains(e.target) && e.target !== navSettings) {
+      settingsMenu.classList.add('hidden');
+    }
+  });
+}
 
 // Elements
 const feed = document.getElementById('feed');

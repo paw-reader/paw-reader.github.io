@@ -393,6 +393,7 @@ body {
 }
 
 #nav-back.hidden { display: none !important; }
+#settings-menu.hidden { display: none !important; }
 
 
 .info-toggle-btn {
