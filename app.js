@@ -1040,7 +1040,11 @@ function createPostCard(post) {
   }
 
   if (allMedia.length === 0 && settingHideNoMedia && settingHideNoMedia.checked) {
-    return null; // Skip rendering this post
+    // Only apply the "Hide empty posts" rule to the main posts feed. 
+    // Announcements and DMs are expected to be text-only!
+    if (currentFeedEndpoint.endsWith('/posts') || currentFeedEndpoint.endsWith('/posts?o=0')) {
+      return null; // Skip rendering this post
+    }
   }
 
   if (allMedia.length > 0) {
@@ -1323,6 +1327,10 @@ async function fetchPosts() {
       const newCards = feed.querySelectorAll('.post-card');
       if (newCards.length > 0) {
         observer.observe(newCards[newCards.length - 1]);
+      } else if (hasMore) {
+        // We fetched a full chunk, but every single post was filtered out (e.g. by hideNoMedia).
+        // Since there are no cards to observe, we must immediately fetch the next chunk!
+        setTimeout(() => fetchPosts(), 100);
       }
     }
   } catch (error) {
