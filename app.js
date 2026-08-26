@@ -977,8 +977,8 @@ async function loadMediaWithProgress(item) {
     progressOverlay.style.display = 'none';
     const zipBtn = document.createElement('button');
     const filename = (item.dataset.path || url).split('/').pop() || 'Archive.zip';
-    zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8">${filename}</small>`;
-    zipBtn.style.background = 'rgba(0, 123, 255, 0.6)';
+    zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Loading size...</small>`;
+    zipBtn.style.background = 'rgba(0, 0, 0, 0.6)';
     zipBtn.style.backdropFilter = 'blur(10px)';
     zipBtn.style.color = 'white';
     zipBtn.style.border = '1px solid rgba(255, 255, 255, 0.2)';
@@ -988,6 +988,20 @@ async function loadMediaWithProgress(item) {
     zipBtn.style.fontWeight = 'bold';
     zipBtn.style.fontSize = '1.2rem';
     zipBtn.style.textAlign = 'center';
+    
+    fetch(url, { method: 'HEAD' })
+      .then(res => {
+        const size = res.headers.get('content-length');
+        if (size) {
+          const sizeStr = formatBytes(parseInt(size, 10));
+          zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>${sizeStr} • Image Archive</small>`;
+        } else {
+          zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Image Archive</small>`;
+        }
+      })
+      .catch(() => {
+        zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Image Archive</small>`;
+      });
     
     zipBtn.addEventListener('click', (e) => {
       e.stopPropagation();
