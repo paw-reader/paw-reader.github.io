@@ -1413,16 +1413,22 @@ async function fetchPosts() {
             if (match) post.user = match[1];
           }
           post.authorName = post.creatorName;
-          // Map Moxxy storageKeys to the correct e1.cum.st path format
-          post.content = post.content || post.captionHtml || post.caption || '';
+          // Keep the full HTML caption as the description
+          post.content = post.captionHtml || post.caption || post.content || '';
           if (!post.title && post.content) {
+            // Derive a short title from the first text line of the caption
             const tmp = document.createElement('div');
             tmp.innerHTML = post.content;
-            let plainText = (tmp.textContent || tmp.innerText || '').trim();
-            if (plainText) {
-              post.title = plainText; // No truncation so no text is lost
-              post.content = ''; // Clear description to prevent duplication
+            // Use only the first non-empty text node/paragraph as title
+            let firstLine = '';
+            for (const node of tmp.childNodes) {
+              const text = (node.textContent || '').trim();
+              if (text) { firstLine = text; break; }
             }
+            if (!firstLine) firstLine = (tmp.textContent || '').trim();
+            // Truncate to a reasonable title length
+            post.title = firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine;
+            // Leave post.content intact so the description still shows below
           }
           if (!post.file && post.attachments && post.attachments.length > 0) {
              const first = post.attachments.find(a => a.storageKey && a.variants && a.variants.length > 0);
