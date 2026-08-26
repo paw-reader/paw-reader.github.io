@@ -219,19 +219,54 @@ function updateNavTabs(creator) {
         currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}`;
         fetchPosts();
       } else if (tab === 'Linked Accounts') {
-        const grid = document.createElement('div');
-        grid.className = 'creators-grid';
-        grid.style.marginTop = '20px';
+        feed.innerHTML = '';
         
-        if (creator.allPlatforms) {
+        if (creator.allPlatforms && creator.allPlatforms.length > 1) {
+          const list = document.createElement('div');
+          list.style.cssText = 'display:flex; flex-direction:column; gap:12px; padding:30px 20px; max-width:400px; margin:0 auto;';
+          
           creator.allPlatforms.forEach(p => {
-            if (p.service === creator.service && p.id === creator.id) return;
-            const singlePlatformCreator = { ...p, allPlatforms: null };
-            const card = buildCreatorCard(singlePlatformCreator);
-            grid.appendChild(card);
+            const row = document.createElement('button');
+            row.style.cssText = `
+              display:flex; align-items:center; gap:14px; padding:14px 18px;
+              background:${getServiceColor(p.service)}; border:none; border-radius:12px;
+              color:#fff; font-size:1rem; cursor:pointer; text-align:left;
+              transition:filter 0.2s; font-weight:${p.service === creator.service && p.id === creator.id ? 'bold' : 'normal'};
+              outline: ${p.service === creator.service && p.id === creator.id ? '2px solid #fff' : 'none'};
+            `;
+            row.onmouseenter = () => row.style.filter = 'brightness(1.2)';
+            row.onmouseleave = () => row.style.filter = '';
+            
+            const icon = document.createElement('img');
+            icon.src = `icons/${p.service}.svg`;
+            icon.style.cssText = 'width:28px; height:28px; border-radius:50%; background:#fff2; object-fit:contain;';
+            icon.onerror = () => icon.style.display = 'none';
+            
+            const label = document.createElement('span');
+            label.innerHTML = `<strong>${p.service.charAt(0).toUpperCase() + p.service.slice(1)}</strong><br><span style="opacity:0.8; font-size:0.85rem;">${p.name}</span>`;
+            
+            const arrow = document.createElement('span');
+            arrow.textContent = p.service === creator.service && p.id === creator.id ? '✓' : '→';
+            arrow.style.cssText = 'margin-left:auto; font-size:1.1rem;';
+            
+            row.appendChild(icon);
+            row.appendChild(label);
+            row.appendChild(arrow);
+            
+            row.addEventListener('click', () => {
+              // Switch to this service's feed
+              resetFeed();
+              currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${p.service}/user/${p.id}/posts`;
+              currentFeedCreatorName = p.name;
+              updateNavTabs({ ...p, allPlatforms: creator.allPlatforms });
+              fetchPosts();
+            });
+            
+            list.appendChild(row);
           });
+          
+          feed.appendChild(list);
         }
-        feed.appendChild(grid);
       } else if (tab === 'Similar Creators' || tab === 'Similar Artists') {
         if (currentSite === 'kemono' || currentSite === 'pawchive') {
           const tld = currentSite === 'kemono' ? 'su' : 'pw';
