@@ -304,7 +304,7 @@ async function syncCumCreators() {
           });
         }
       }
-      if (added && currentSite === 'cum' && document.getElementById('creators-view') && !document.getElementById('creators-view').classList.contains('hidden')) {
+      if (added && currentSite === 'cum' && document.getElementById('creators-view') && document.getElementById('creators-view').classList.contains('active')) {
         filterAndSortCreators(); // Update the view live as creators pour in!
       }
     }
