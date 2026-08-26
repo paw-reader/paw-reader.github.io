@@ -317,7 +317,9 @@ function renderCreatorsPage() {
     
     const img = document.createElement('img');
     img.className = 'creator-image';
-    img.src = `${PROXY_URL}/${currentSite}/icons/${creator.service}/${creator.id}`;
+    if (currentSite !== 'cum') {
+      img.src = `${PROXY_URL}/${currentSite}/icons/${creator.service}/${creator.id}`;
+    }
     img.loading = 'lazy';
     img.onerror = () => { img.style.display = 'none'; };
     
@@ -347,8 +349,10 @@ function renderCreatorsPage() {
         currentPlatformIndex = (currentPlatformIndex + 1) % creator.allPlatforms.length;
         const newPlatform = creator.allPlatforms[currentPlatformIndex];
         
+        if (currentSite !== 'cum') {
+          img.src = `${PROXY_URL}/${currentSite}/icons/${newPlatform.service}/${newPlatform.id}`;
+        }
         service.textContent = newPlatform.service;
-        img.src = `${PROXY_URL}/${currentSite}/icons/${newPlatform.service}/${newPlatform.id}`;
         card.style.backgroundColor = getServiceColor(newPlatform.service);
       });
       card.appendChild(switchBtn);
@@ -441,6 +445,11 @@ function resetFeed() {
 
 function getMediaUrl(path) {
   if (!path) return null;
+  if (currentSite === 'kemono') {
+    return `https://kemono.cr/data${path}`;
+  } else if (currentSite === 'cum') {
+    return `https://cum.st/data${path}`;
+  }
   return `${PROXY_URL}/${currentSite}/file/data${path}`;
 }
 
@@ -552,13 +561,18 @@ async function loadMediaWithProgress(item) {
       }
     }
     
-    const blob = new Blob(chunks, { type: response.headers.get('content-type') });
+    const blob = new Blob(chunks);
     attachMedia(item, blob, type);
     progressOverlay.style.display = 'none';
-    
-  } catch (err) {
-    console.error('Failed to load media', err);
-    progressOverlay.textContent = 'Failed';
+  } catch (error) {
+    console.warn(`Failed to load media with progress (${error.message}), falling back to direct load...`);
+    progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Direct Load</span>`;
+    const img = document.createElement('img');
+    img.className = 'post-media';
+    img.onload = () => { progressOverlay.style.display = 'none'; };
+    img.onerror = () => { progressOverlay.innerHTML = '<span style="color:#ff4444">Image Error</span>'; };
+    img.src = url;
+    item.appendChild(img);
   }
 }
 
