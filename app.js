@@ -275,6 +275,7 @@ function updateNavTabs(creator) {
               ev.stopPropagation(); // prevent bubbling to btn which would re-toggle
               dropdown.remove();
               document.removeEventListener('mousedown', outsideClose);
+              updateNavVisibility(); // restore normal auto-hide
               resetFeed();
               currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${p.service}/user/${p.id}/posts`;
               currentFeedCreatorName = p.name;
@@ -288,11 +289,17 @@ function updateNavTabs(creator) {
 
         document.body.appendChild(dropdown);
 
+        // Lock nav visible while dropdown is open
+        const navEl = document.getElementById('nav');
+        if (navEl) navEl.classList.add('visible');
+
         // Close on mousedown outside (fires before click, more reliable)
         function outsideClose(ev) {
           if (!dropdown.contains(ev.target) && ev.target !== btn) {
             dropdown.remove();
             document.removeEventListener('mousedown', outsideClose);
+            // Restore normal auto-hide
+            if (navEl) updateNavVisibility();
           }
         }
         setTimeout(() => document.addEventListener('mousedown', outsideClose), 0);
