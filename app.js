@@ -755,10 +755,32 @@ function createPostCard(post) {
   
   const author = document.createElement('div');
   author.className = 'post-author';
+  author.style.display = 'flex';
+  author.style.alignItems = 'center';
+  author.style.gap = '8px';
   
   const creator = allCreators.find(c => c.id === post.user && c.service === post.service);
   const displayName = post.authorName || (creator ? creator.name : currentFeedCreatorName) || post.user;
-  author.textContent = `Creator: ${displayName} (${post.service})`;
+  
+  const authorNameSpan = document.createElement('span');
+  authorNameSpan.textContent = `Creator: ${displayName}`;
+  author.appendChild(authorNameSpan);
+  
+  const serviceIcon = document.createElement('img');
+  serviceIcon.src = `icons/${post.service}.svg`;
+  serviceIcon.style.width = '18px';
+  serviceIcon.style.height = '18px';
+  serviceIcon.style.objectFit = 'contain';
+  serviceIcon.title = post.service; // tooltip
+  serviceIcon.onerror = () => {
+    serviceIcon.style.display = 'none';
+    const fallbackText = document.createElement('span');
+    fallbackText.textContent = `(${post.service})`;
+    fallbackText.style.opacity = '0.7';
+    fallbackText.style.fontSize = '0.9em';
+    author.appendChild(fallbackText);
+  };
+  author.appendChild(serviceIcon);
 
   const title = document.createElement('div');
   title.className = 'post-title';
