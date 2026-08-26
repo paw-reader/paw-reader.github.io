@@ -198,10 +198,10 @@ function updateNavTabs(creator) {
   
   // Filter tabs based on creator metadata if available
   tabs = tabs.filter(tab => {
+    // Only strictly hide if the count is explicitly 0 (since Kemono returns undefined for these counts)
     if (tab === 'DMs' && creator.dmCount === 0) return false;
     if (tab === 'Posts' && creator.postCount === 0) return false;
     if (tab === 'Linked Accounts' && (!creator.allPlatforms || creator.allPlatforms.length <= 1)) return false;
-    // For Kemono, we don't have links or dmCount in the search API, so we show them by default unless we know for a fact they are 0
     return true;
   });
   
@@ -214,10 +214,9 @@ function updateNavTabs(creator) {
       Array.from(navTabs.children).forEach(c => c.style.background = '');
       btn.style.background = 'rgba(0, 123, 255, 0.6)';
       
-      // Clear feed and show coming soon placeholder for non-post tabs
       resetFeed();
-      if (tab === 'Posts') {
-        currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/posts`;
+      if (tab === 'Posts' || tab === 'DMs' || tab === 'Announcements') {
+        currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}`;
         fetchPosts();
       } else if (tab === 'Linked Accounts') {
         const grid = document.createElement('div');
