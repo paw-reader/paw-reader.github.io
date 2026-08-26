@@ -893,7 +893,15 @@ async function fetchPosts() {
           }
           post.authorName = post.creatorName;
           // Map Moxxy storageKeys to the correct e1.cum.st path format
-          post.content = post.content || post.captionHtml || '';
+          post.content = post.content || post.captionHtml || post.caption || '';
+          if (!post.title && post.content) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = post.content;
+            let plainText = (tmp.textContent || tmp.innerText || '').trim();
+            if (plainText) {
+              post.title = plainText.length > 60 ? plainText.substring(0, 57) + '...' : plainText;
+            }
+          }
           if (!post.file && post.attachments && post.attachments.length > 0) {
              const first = post.attachments.find(a => a.storageKey && a.variants && a.variants.length > 0);
              if (first) {
