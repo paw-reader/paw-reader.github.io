@@ -972,6 +972,36 @@ async function loadMediaWithProgress(item) {
     progressOverlay.textContent = 'No Media';
     return;
   }
+
+  if (type === 'zip') {
+    progressOverlay.style.display = 'none';
+    const zipBtn = document.createElement('button');
+    const filename = (item.dataset.path || url).split('/').pop() || 'Archive.zip';
+    zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8">${filename}</small>`;
+    zipBtn.style.background = 'rgba(0, 123, 255, 0.6)';
+    zipBtn.style.backdropFilter = 'blur(10px)';
+    zipBtn.style.color = 'white';
+    zipBtn.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    zipBtn.style.padding = '20px 30px';
+    zipBtn.style.borderRadius = '15px';
+    zipBtn.style.cursor = 'pointer';
+    zipBtn.style.fontWeight = 'bold';
+    zipBtn.style.fontSize = '1.2rem';
+    zipBtn.style.textAlign = 'center';
+    
+    zipBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openZipGallery(url, filename);
+    });
+    
+    // Center it in the media item perfectly
+    item.style.display = 'flex';
+    item.style.alignItems = 'center';
+    item.style.justifyContent = 'center';
+    
+    item.appendChild(zipBtn);
+    return;
+  }
   
   if (type === 'video') {
     progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Buffering Video</span>`;
@@ -1198,15 +1228,12 @@ function createPostCard(post) {
     });
   
   let allMedia = [];
-  let zipFiles = [];
-  const supportedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg', 'mp4', 'webm', 'mov'];
+  const supportedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg', 'mp4', 'webm', 'mov', 'zip'];
   function categorizeFile(path) {
     if (!path) return;
     const ext = path.split('.').pop().toLowerCase();
     if (supportedExts.includes(ext) && !allMedia.includes(path)) {
       allMedia.push(path);
-    } else if (ext === 'zip' && !zipFiles.includes(path)) {
-      zipFiles.push(path);
     }
   }
 
@@ -1255,7 +1282,7 @@ function createPostCard(post) {
       progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Connecting...</span>`;
         item.dataset.url = getMediaUrl(mediaPath);
         item.dataset.path = mediaPath; // <--- ADD THIS LINE
-        item.dataset.type = isVideo ? 'video' : 'image';
+        item.dataset.type = ext === 'zip' ? 'zip' : isVideo ? 'video' : 'image';
         carousel.appendChild(item);
         mediaObserver.observe(item);
     });
@@ -1368,37 +1395,7 @@ function createPostCard(post) {
     info.appendChild(content);
   }
 
-  if (zipFiles.length > 0) {
-    const zipContainer = document.createElement('div');
-    zipContainer.style.marginTop = '15px';
-    zipContainer.style.display = 'flex';
-    zipContainer.style.flexDirection = 'column';
-    zipContainer.style.gap = '10px';
-
-    zipFiles.forEach(zipPath => {
-      const zipBtn = document.createElement('button');
-      const filename = zipPath.split('/').pop() || 'Archive.zip';
-      zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8">${filename}</small>`;
-      zipBtn.style.background = '#007bff';
-      zipBtn.style.color = 'white';
-      zipBtn.style.border = 'none';
-      zipBtn.style.padding = '10px 15px';
-      zipBtn.style.borderRadius = '8px';
-      zipBtn.style.cursor = 'pointer';
-      zipBtn.style.fontWeight = 'bold';
-      zipBtn.style.textAlign = 'left';
-      
-      zipBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openZipGallery(getMediaUrl(zipPath), filename);
-      });
-      
-      zipContainer.appendChild(zipBtn);
-    });
-
-    info.appendChild(zipContainer);
-  }
-
+  // Zip buttons are now rendered as standard media cards in the carousel
   card.addEventListener('click', (e) => {
     if (e.target.tagName.toLowerCase() === 'a') return;
     
@@ -1676,11 +1673,36 @@ document.addEventListener('mouseup', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (!feedView.classList.contains('active')) return;
   if (e.target.tagName.toLowerCase() === 'input') return;
 
   const h = window.innerHeight;
   const w = window.innerWidth;
+
+  // Intercept navigation for ZIP viewer if open
+  if (!zipViewer.classList.contains('hidden')) {
+    if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      let target = zipContent.dataset.targetScroll !== undefined ? parseFloat(zipContent.dataset.targetScroll) : Math.round(zipContent.scrollLeft / w) * w;
+      target = target - w;
+      if (target < 0) target = zipContent.scrollWidth - zipContent.clientWidth;
+      zipContent.dataset.targetScroll = target;
+      zipContent.dataset.scrollDir = 'left';
+      zipContent.style.scrollSnapType = 'none';
+      zipContent.scrollTo({ left: target, behavior: 'smooth' });
+    } else if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
+      e.preventDefault();
+      let target = zipContent.dataset.targetScroll !== undefined ? parseFloat(zipContent.dataset.targetScroll) : Math.round(zipContent.scrollLeft / w) * w;
+      target = target + w;
+      if (target > zipContent.scrollWidth - zipContent.clientWidth) target = 0;
+      zipContent.dataset.targetScroll = target;
+      zipContent.dataset.scrollDir = 'right';
+      zipContent.style.scrollSnapType = 'none';
+      zipContent.scrollTo({ left: target, behavior: 'smooth' });
+    }
+    return;
+  }
+
+  if (!feedView.classList.contains('active')) return;
   
   if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'w') {
     e.preventDefault();
@@ -1753,6 +1775,28 @@ zipContent.addEventListener('scroll', () => {
   if (currentZipObjectUrls.length <= 1) return;
   const index = Math.round(zipContent.scrollLeft / zipContent.clientWidth) + 1;
   zipIndicator.textContent = `${index} / ${currentZipObjectUrls.length}`;
+});
+
+zipViewer.addEventListener('click', (e) => {
+  if (e.target.id === 'close-zip-viewer') return;
+  const x = e.clientX;
+  const w = window.innerWidth;
+  
+  if (x < w * 0.2) { // left 20%
+    let target = zipContent.scrollLeft - w;
+    if (target < 0) target = zipContent.scrollWidth - zipContent.clientWidth;
+    zipContent.dataset.targetScroll = target;
+    zipContent.dataset.scrollDir = 'left';
+    zipContent.style.scrollSnapType = 'none';
+    zipContent.scrollTo({ left: target, behavior: 'smooth' });
+  } else if (x > w * 0.8) { // right 20%
+    let target = zipContent.scrollLeft + w;
+    if (target > zipContent.scrollWidth - zipContent.clientWidth) target = 0;
+    zipContent.dataset.targetScroll = target;
+    zipContent.dataset.scrollDir = 'right';
+    zipContent.style.scrollSnapType = 'none';
+    zipContent.scrollTo({ left: target, behavior: 'smooth' });
+  }
 });
 
 async function openZipGallery(zipUrl, filename) {
