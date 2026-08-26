@@ -1,0 +1,21 @@
+export const PROXY_URL = 'https://paw-worker.syrupderg.workers.dev';
+
+export const state = {
+  currentSite: 'pawchive',
+  allCreators: [],
+  loadedCreatorsSite: '',
+  filteredCreators: [],
+  creatorPage: 1,
+  creatorsPerPage: 50,
+  offset: 0,
+  isFetching: false,
+  hasMore: true,
+  limit: 50,
+  currentFeedEndpoint: `${PROXY_URL}/pawchive/api/v1/posts`,
+  currentFeedCreatorName: null,
+  navManualVisible: false,
+  zipNavManualVisible: false,
+  currentZipObjectUrls: [],
+  cumSelectedTypes: ['photos', 'videos', 'audio', 'text'],
+  creatorSortDir: 'desc'
+};

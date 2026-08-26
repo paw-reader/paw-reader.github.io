@@ -84,7 +84,7 @@ input, textarea, [contenteditable], .post-info.expanded {
   padding: 8px 16px;
   border-radius: 20px;
 }
-#nav-back, #nav-info, #nav-settings, #nav-home {
+#nav #nav-back, #nav #nav-info, #nav #nav-settings, #nav #nav-home {
   width: 36px;
   height: 36px;
   padding: 0;
@@ -96,9 +96,9 @@ input, textarea, [contenteditable], .post-info.expanded {
   z-index: 1000;
 }
 
-#nav-back, #nav-info { position: static; }
-#nav-settings { top: 20px; right: 65px; }
-#nav-home { top: 20px; right: 20px; }
+#nav #nav-back, #nav #nav-info { position: static; }
+#nav #nav-settings { top: 20px; right: 65px; }
+#nav #nav-home { top: 20px; right: 20px; }
 
 #nav-tabs {
   position: fixed;
@@ -108,27 +108,29 @@ input, textarea, [contenteditable], .post-info.expanded {
   z-index: 1000;
   display: flex;
   gap: 10px;
-  pointer-events: auto;
   max-width: calc(100vw - 230px);
   overflow-x: auto;
 }
 
 @media (max-width: 600px), (max-height: 500px) {
   #nav-left { flex-direction: column; }
-  #nav-info { top: 65px; left: 20px; }
-  #nav-settings { top: 65px; right: 20px; }
+  #nav #nav-info { top: 65px; left: 20px; }
+  #nav #nav-settings { top: 65px; right: 20px; }
   #nav-tabs { 
     left: 70px; 
     right: 70px; 
     transform: none; 
     max-width: none; 
     width: auto; 
-    justify-content: center;
+    justify-content: flex-start;
   }
 }
 #nav button {
   backdrop-filter: blur(10px);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-weight: bold;
   transition: background 0.2s;
 }
@@ -170,6 +172,9 @@ input, textarea, [contenteditable], .post-info.expanded {
   border: none;
   border-radius: 30px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: #333;
   color: #fff;
   transition: transform 0.2s, background 0.2s;
@@ -207,6 +212,27 @@ input, textarea, [contenteditable], .post-info.expanded {
   max-width: 100%;
   flex: 1 1 200px;
 }
+.creators-controls button {
+  padding: 12px 16px;
+  border-radius: 5px;
+  border: 1px solid #444;
+  background: #333;
+  color: white;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  transition: background 0.2s, border-color 0.2s;
+}
+.creators-controls button:hover {
+  background: #444;
+  border-color: #007bff;
+}
 .creators-controls input:focus,
 .creators-controls select:focus {
   outline: none;
@@ -230,10 +256,16 @@ input, textarea, [contenteditable], .post-info.expanded {
   align-items: center;
   gap: 5px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   user-select: none;
 }
 .checkbox-container input[type="checkbox"] {
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
   height: 16px;
 }
@@ -250,6 +282,9 @@ input, textarea, [contenteditable], .post-info.expanded {
   padding: 15px;
   border-radius: 10px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: background 0.2s, transform 0.2s;
   text-align: center;
   display: flex;
@@ -276,8 +311,15 @@ input, textarea, [contenteditable], .post-info.expanded {
 }
 .creator-service {
   font-size: 0.8rem;
-  color: #aaa;
+  color: #fff;
+  opacity: 0.85;
   text-transform: uppercase;
+}
+.creator-favorites {
+  font-size: 0.8rem;
+  color: #fff;
+  opacity: 0.85;
+  margin-top: 4px;
 }
 .pagination {
   display: flex;
@@ -294,6 +336,9 @@ input, textarea, [contenteditable], .post-info.expanded {
   padding: 5px 10px;
   border-radius: 5px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: background 0.2s;
 }
 .page-btn:hover {
@@ -331,7 +376,10 @@ input, textarea, [contenteditable], .post-info.expanded {
   align-items: center;
   justify-content: center;
   background-color: #000;
-  cursor: pointer; /* indicate it's clickable to show info */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center; /* indicate it's clickable to show info */
 }
 
 /* Media Carousel */
@@ -363,10 +411,73 @@ input, textarea, [contenteditable], .post-info.expanded {
   height: 100%;
   object-fit: contain;
 }
+video.post-media, audio.post-media {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
 .post-no-media {
   padding: 20px;
   text-align: center;
   color: #888;
+}
+.post-text-card {
+  width: 100%;
+  max-width: 800px;
+  height: 100%;
+  max-height: 100vh;
+  box-sizing: border-box;
+  padding: 80px 25px 40px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  color: #ddd;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  cursor: default;
+}
+.post-text-card::-webkit-scrollbar {
+  width: 6px;
+}
+.post-text-card::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+.post-text-inner {
+  margin: auto 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.post-text-card .post-author {
+  font-weight: bold;
+  font-size: 1.2rem;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+  justify-content: center;
+}
+.post-text-card .post-title {
+  font-size: 1.25rem;
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 15px;
+  word-wrap: break-word;
+  text-align: center;
+  flex-shrink: 0;
+}
+.post-text-card .post-content {
+  color: #ddd;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  padding-bottom: 20px;
+  text-align: center;
+  word-break: break-word;
 }
 .carousel-indicator {
   position: absolute;
@@ -409,6 +520,20 @@ input, textarea, [contenteditable], .post-info.expanded {
   font-weight: bold;
   font-size: 1.2rem;
   margin-bottom: 8px;
+}
+.post-author-link, .post-title-link {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease;
+}
+.post-author-link:hover, .post-title-link:hover {
+  text-decoration: underline;
+  opacity: 0.85;
 }
 .post-title {
   font-size: 1rem;
@@ -468,10 +593,15 @@ input, textarea, [contenteditable], .post-info.expanded {
   z-index: 2000;
   min-width: 200px;
   box-shadow: -4px 0 15px rgba(0,0,0,0.5);
-  transition: transform 0.3s ease-in-out;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 0.3s ease-in-out, visibility 0.3s step-end;
 }
 #settings-menu.active {
   transform: translateY(-50%) translateX(0);
+  visibility: visible;
+  pointer-events: auto;
+  transition: transform 0.3s ease-in-out, visibility 0s;
 }
 #settings-menu h3 {
   margin-top: 0;
@@ -502,6 +632,9 @@ input, textarea, [contenteditable], .post-info.expanded {
   border-radius: 50%;
   padding: 10px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 1000;
   transition: transform 0.2s;
   user-select: none;
@@ -514,20 +647,62 @@ input, textarea, [contenteditable], .post-info.expanded {
 
 #nav.auto-hide {
   opacity: 0;
-  transform: translateY(-20px);
-  transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+  visibility: hidden;
+  transform: translateY(-150%);
+  pointer-events: none !important;
+  transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out, visibility 0.3s;
 }
-#nav.auto-hide button {
-  pointer-events: none;
+#nav.auto-hide * {
+  visibility: hidden;
+  pointer-events: none !important;
 }
 #nav.auto-hide.visible {
   opacity: 1;
+  visibility: visible;
   transform: translateY(0);
+  pointer-events: none !important;
 }
-#nav.auto-hide.visible button {
-  pointer-events: auto;
+#nav.auto-hide.visible * {
+  visibility: visible;
+}
+#nav.auto-hide.visible button,
+#nav.auto-hide.visible a,
+#nav.auto-hide.visible select,
+#nav.auto-hide.visible input,
+#nav.auto-hide.visible label {
+  pointer-events: auto !important;
 }
 
+#zip-nav {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100px;
+  z-index: 2010;
+  transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out, visibility 0.3s;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-150%);
+  pointer-events: none !important;
+}
+#zip-nav * {
+  visibility: hidden;
+  pointer-events: none !important;
+}
+#zip-nav.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: none !important;
+}
+#zip-nav.visible * {
+  visibility: visible;
+}
+#zip-nav.visible button,
+#zip-nav.visible a {
+  pointer-events: auto !important;
+}
 
 body.nav-visible .carousel-indicator {
   top: 70px;
@@ -537,7 +712,6 @@ body.nav-visible .carousel-indicator {
     top: 110px;
   }
 }
-
 
 .post-content a {
   color: #0096FA;
@@ -550,7 +724,9 @@ body.nav-visible .carousel-indicator {
   margin: 0;
 }
 
-#nav button {
+#nav:not(.auto-hide) button,
+#nav:not(.auto-hide) a,
+#nav:not(.auto-hide) #nav-tabs {
   pointer-events: auto;
 }
 
@@ -578,15 +754,58 @@ body.no-animations #feed, body.no-animations .media-carousel, body.no-animations
 }
 
 .zip-action-btn {
-  background: rgba(0, 123, 255, 0.6);
+  background: rgba(0, 0, 0, 0.6);
   color: white;
   border: none;
   padding: 10px 15px;
   border-radius: 8px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-weight: bold;
   font-size: 1rem;
 }
 .zip-action-btn:hover {
-  background: rgba(0, 123, 255, 0.8);
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* Similar Artists Feed Grid */
+.feed-creators-grid {
+  padding: 80px 20px 60px 20px !important; /* Base padding to clear desktop nav */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 600px), (max-height: 500px) {
+  .feed-creators-grid {
+    padding-top: 120px !important; /* Clear double-deck mobile nav */
+  }
+}
+
+.feed-placeholder {
+  text-align: center;
+  padding: 80px 20px 40px 20px;
+  color: #aaa;
+  font-size: 1.2rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 600px), (max-height: 500px) {
+  .feed-placeholder {
+    padding-top: 120px;
+  }
+}
+
+/* Ensure text doesn't overflow cards */
+.creator-name {
+  word-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
