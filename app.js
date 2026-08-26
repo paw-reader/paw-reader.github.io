@@ -394,20 +394,23 @@ async function loadCreators() {
         if (c.allPlatforms) c.allPlatforms.forEach(p => services.add(p.service));
       });
       
-      // Preserve current selection if possible
-      const currentSelection = serviceFilterSelect.value;
+      // Preserve current checked state
+      const checkedBoxes = Array.from(serviceFilterSelect.querySelectorAll('input:checked')).map(cb => cb.value);
       
-      serviceFilterSelect.innerHTML = '<option value="all">All Services</option>';
+      serviceFilterSelect.innerHTML = '';
       Array.from(services).sort().forEach(service => {
-        const option = document.createElement('option');
-        option.value = service;
-        option.textContent = service.charAt(0).toUpperCase() + service.slice(1);
-        serviceFilterSelect.appendChild(option);
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = service;
+        if (checkedBoxes.includes(service)) {
+          cb.checked = true;
+        }
+        const text = document.createTextNode(' ' + service.charAt(0).toUpperCase() + service.slice(1));
+        label.appendChild(cb);
+        label.appendChild(text);
+        serviceFilterSelect.appendChild(label);
       });
-      
-      if (services.has(currentSelection)) {
-        serviceFilterSelect.value = currentSelection;
-      }
     }
     
     filterAndSortCreators();
@@ -422,12 +425,19 @@ async function loadCreators() {
 function filterAndSortCreators() {
   const query = (searchInput ? searchInput.value.toLowerCase() : '');
   const sort = (sortSelect ? sortSelect.value : 'followers-desc');
-  const serviceFilter = (serviceFilterSelect ? serviceFilterSelect.value : 'all');
   const contentFilter = (contentFilterSelect ? contentFilterSelect.value : 'content');
+  
+  // Get all checked services. If none are checked, we assume the user wants to see everything.
+  const checkedServices = serviceFilterSelect 
+    ? Array.from(serviceFilterSelect.querySelectorAll('input:checked')).map(cb => cb.value)
+    : [];
   
   filteredCreators = allCreators.filter(c => {
     const matchesQuery = c.name.toLowerCase().includes(query);
-    const matchesService = serviceFilter === 'all' || c.service === serviceFilter || (c.allPlatforms && c.allPlatforms.some(p => p.service === serviceFilter));
+    
+    const matchesService = checkedServices.length === 0 || 
+      checkedServices.includes(c.service) || 
+      (c.allPlatforms && c.allPlatforms.some(p => checkedServices.includes(p.service)));
     
     let hasContent = false;
     if (currentSite === 'cum') {
@@ -471,15 +481,17 @@ function renderCreatorsPage() {
   const end = start + creatorsPerPage;
   const pageCreators = filteredCreators.slice(start, end);
   
-  const serviceFilter = serviceFilterSelect ? serviceFilterSelect.value : 'all';
+  const checkedServices = serviceFilterSelect 
+    ? Array.from(serviceFilterSelect.querySelectorAll('input:checked')).map(cb => cb.value)
+    : [];
   
   pageCreators.forEach(creator => {
     const card = document.createElement('div');
     card.className = 'creator-card';
     
     let currentPlatformIndex = 0;
-    if (serviceFilter !== 'all' && creator.allPlatforms) {
-      const idx = creator.allPlatforms.findIndex(p => p.service === serviceFilter);
+    if (checkedServices.length > 0 && creator.allPlatforms) {
+      const idx = creator.allPlatforms.findIndex(p => checkedServices.includes(p.service));
       if (idx !== -1) currentPlatformIndex = idx;
     }
     
