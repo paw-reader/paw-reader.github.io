@@ -56,8 +56,8 @@ body {
   z-index: 1000;
   pointer-events: none; /* Let clicks pass through empty space */
 }
-#nav.hidden {
-  display: none;
+#nav.hidden, .hidden {
+  display: none !important;
 }
 #nav-tabs::-webkit-scrollbar {
   display: none;

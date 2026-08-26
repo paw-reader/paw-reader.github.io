@@ -46,10 +46,6 @@ async function deleteDbItem(url) {
   });
 }
 
-
-
-
-
 function getServiceColor(service) {
   const s = (service || '').toLowerCase();
   if (s === 'fanbox') return '#0096FA';
@@ -65,7 +61,6 @@ function getServiceColor(service) {
   return '#222';
 }
 
-
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -73,7 +68,6 @@ function formatBytes(bytes) {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
-
 
 const topProgress = document.getElementById('top-progress');
 function startProgress() {
@@ -95,10 +89,8 @@ window.addEventListener('beforeunload', () => {
   // The pause button is the reliable way to save progress.
 });
 
-
 // Nav
 const nav = document.getElementById('nav');
-
 
 function closeAllPostInfo() {
   const expanded = document.querySelectorAll('.post-info.expanded');
@@ -420,7 +412,6 @@ function updateNavTabs(creator) {
   });
 }
 
-
 // State
 
 function wrapCarousel(carousel, direction) {
@@ -515,8 +506,6 @@ btnCreators.addEventListener('click', () => {
   showView(creatorsView, true, false);
   loadCreators();
 });
-
-
 
 let allCreators = [];
 let loadedCreatorsSite = '';
@@ -916,7 +905,6 @@ function createPageBtn(pageNum) {
   return btn;
 }
 
-
 function resetFeed() {
   // Cleanly stop any fetching/playing videos to avoid DOMExceptions
   const videos = feed.querySelectorAll('video');
@@ -948,10 +936,6 @@ function getMediaUrl(path) {
   }
   return `${PROXY_URL}/${currentSite}/file/data${path}`;
 }
-
-
-
-
 
 const playbackObserver = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
@@ -1020,7 +1004,13 @@ async function loadMediaWithProgress(item) {
     }
 
     const response = await fetch(url);
-    if (!response.ok) throw new Error('Network response was not ok');
+    if (!response.ok) {
+      // Check for a 404 to avoid triggering an ORB block in the fallback
+      if (response.status === 404) {
+        throw new Error('404_NOT_FOUND');
+      }
+      throw new Error('Network response was not ok');
+    }
     
     const contentLength = response.headers.get('content-length');
     let total = 0;
@@ -1068,6 +1058,67 @@ async function loadMediaWithProgress(item) {
     attachMedia(item, blob, type);
     progressOverlay.style.display = 'none';
   } catch (error) {
+    if (error.message === '404_NOT_FOUND') {
+      const path = item.dataset.path;
+      
+      // Helper function to show the warning if the thumbnail also fails
+      const showWarning = () => {
+        const siteName = currentSite.charAt(0).toUpperCase() + currentSite.slice(1);
+        progressOverlay.innerHTML = `
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px; text-align: center; background: rgba(0,0,0,0.5); border-radius: 12px;">
+            <span style="color: #ffb86c; font-size: 2rem;">⚠️</span>
+            <span style="color: #ffb86c; font-size: 1.2rem; font-weight: bold;">Media Unavailable</span>
+            <span style="color: #ccc; font-size: 0.95rem; font-weight: normal; max-width: 250px; line-height: 1.4;">
+              This file has not yet been imported to ${siteName}, or it has been removed.
+            </span>
+          </div>
+        `;
+      };
+
+      // Attempt to load a thumbnail fallback directly from the native CDNs
+      if (path && (currentSite === 'pawchive' || currentSite === 'kemono')) {
+        let thumbUrl = '';
+        
+        if (currentSite === 'pawchive') {
+          // Hit the Pawchive image CDN directly
+          thumbUrl = `https://img.pawchive.pw/thumbnail/data${path}`;
+        } else if (currentSite === 'kemono') {
+          // Note: For kemono, our getMediaUrl() already defaults to thumbnails for images.
+          // If an image 404s on Kemono, the thumbnail is definitely gone, so we skip straight to the warning.
+          if (type !== 'video') {
+            showWarning();
+            return;
+          }
+          // Hit the Kemono image CDN directly for missing videos
+          thumbUrl = `https://img.kemono.cr/thumbnail/data${path}`;
+        }
+
+        progressOverlay.innerHTML = `Loading Thumbnail...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Original missing</span>`;
+        
+        const thumbImg = document.createElement('img');
+        thumbImg.className = 'post-media';
+        
+        // If the thumbnail successfully loads, hide the progress overlay
+        thumbImg.onload = () => { 
+          progressOverlay.style.display = 'none'; 
+        };
+        
+        // If the thumbnail ALSO fails (e.g., the direct CDN returns a 404), show the yellow warning
+        thumbImg.onerror = () => {
+          showWarning(); 
+        };
+        
+        thumbImg.src = thumbUrl;
+        item.appendChild(thumbImg);
+        return;
+      }
+
+      // If it's Cum.st (which lacks a reliable thumbnail endpoint), just show the warning
+      showWarning();
+      return;
+    }
+
+    // Original fallback logic for CORS or opaque stream failures
     progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Direct Load</span>`;
     const img = document.createElement('img');
     img.className = 'post-media';
@@ -1097,7 +1148,6 @@ function attachMedia(item, blob, type) {
     item.appendChild(img);
   }
 }
-
 
 function createPostCard(post) {
   const card = document.createElement('div');
@@ -1146,23 +1196,23 @@ function createPostCard(post) {
         }
       }
     });
-
   
   let allMedia = [];
+  let zipFiles = [];
   const supportedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg', 'mp4', 'webm', 'mov'];
-  function isValidMedia(path) {
-    if (!path) return false;
+  function categorizeFile(path) {
+    if (!path) return;
     const ext = path.split('.').pop().toLowerCase();
-    return supportedExts.includes(ext);
+    if (supportedExts.includes(ext) && !allMedia.includes(path)) {
+      allMedia.push(path);
+    } else if (ext === 'zip' && !zipFiles.includes(path)) {
+      zipFiles.push(path);
+    }
   }
 
-  if (post.file && isValidMedia(post.file.path)) allMedia.push(post.file.path);
+  if (post.file) categorizeFile(post.file.path);
   if (post.attachments && post.attachments.length > 0) {
-    post.attachments.forEach(att => {
-      if (att && isValidMedia(att.path) && !allMedia.includes(att.path)) {
-        allMedia.push(att.path);
-      }
-    });
+    post.attachments.forEach(att => categorizeFile(att ? att.path : null));
   }
 
   // Extract inline images from post content (very common in Announcements)
@@ -1204,12 +1254,12 @@ function createPostCard(post) {
 
       progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Connecting...</span>`;
         item.dataset.url = getMediaUrl(mediaPath);
+        item.dataset.path = mediaPath; // <--- ADD THIS LINE
         item.dataset.type = isVideo ? 'video' : 'image';
         carousel.appendChild(item);
         mediaObserver.observe(item);
     });
     
-
     const indicator = document.createElement('div');
     indicator.className = 'carousel-indicator';
     indicator.textContent = `1 / ${allMedia.length}`;
@@ -1241,7 +1291,6 @@ function createPostCard(post) {
       indicator.textContent = `${index + 1} / ${allMedia.length}`;
     });
 
-    
   } else {
     const fallback = document.createElement('div');
     fallback.className = 'media-item';
@@ -1319,9 +1368,36 @@ function createPostCard(post) {
     info.appendChild(content);
   }
 
-  
-  
-  
+  if (zipFiles.length > 0) {
+    const zipContainer = document.createElement('div');
+    zipContainer.style.marginTop = '15px';
+    zipContainer.style.display = 'flex';
+    zipContainer.style.flexDirection = 'column';
+    zipContainer.style.gap = '10px';
+
+    zipFiles.forEach(zipPath => {
+      const zipBtn = document.createElement('button');
+      const filename = zipPath.split('/').pop() || 'Archive.zip';
+      zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8">${filename}</small>`;
+      zipBtn.style.background = '#007bff';
+      zipBtn.style.color = 'white';
+      zipBtn.style.border = 'none';
+      zipBtn.style.padding = '10px 15px';
+      zipBtn.style.borderRadius = '8px';
+      zipBtn.style.cursor = 'pointer';
+      zipBtn.style.fontWeight = 'bold';
+      zipBtn.style.textAlign = 'left';
+      
+      zipBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openZipGallery(getMediaUrl(zipPath), filename);
+      });
+      
+      zipContainer.appendChild(zipBtn);
+    });
+
+    info.appendChild(zipContainer);
+  }
 
   card.addEventListener('click', (e) => {
     if (e.target.tagName.toLowerCase() === 'a') return;
@@ -1398,8 +1474,6 @@ function createPostCard(post) {
   card.appendChild(info);
   return card;
 }
-
-
 
 async function fetchPosts() {
   if (isFetching || !hasMore) return;
@@ -1509,15 +1583,9 @@ async function fetchPosts() {
   }
 }
 
-
-
-
 // Mouse swipe simulation for desktop
 let swipeStartX = 0;
 let swipeStartY = 0;
-
-
-
 
 let feedScrollTimeout;
 document.getElementById('feed').addEventListener('scroll', (e) => {
@@ -1607,7 +1675,6 @@ document.addEventListener('mouseup', (e) => {
   }
 });
 
-
 document.addEventListener('keydown', (e) => {
   if (!feedView.classList.contains('active')) return;
   if (e.target.tagName.toLowerCase() === 'input') return;
@@ -1666,3 +1733,83 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
+const zipViewer = document.getElementById('zip-viewer');
+const zipTitle = document.getElementById('zip-title');
+const zipContent = document.getElementById('zip-content');
+const closeZipViewer = document.getElementById('close-zip-viewer');
+let currentZipObjectUrls = [];
+
+if (closeZipViewer) {
+  closeZipViewer.addEventListener('click', () => {
+    zipViewer.classList.add('hidden');
+    zipContent.innerHTML = '';
+    currentZipObjectUrls.forEach(url => URL.revokeObjectURL(url));
+    currentZipObjectUrls = [];
+  });
+}
+
+async function openZipGallery(zipUrl, filename) {
+  zipViewer.classList.remove('hidden');
+  zipTitle.textContent = 'Downloading ' + filename + '...';
+  zipContent.innerHTML = '<div style="color:white; margin-top:50px;">Downloading archive... Please wait.</div>';
+  
+  try {
+    const response = await fetch(zipUrl);
+    if (!response.ok) throw new Error('Network response was not ok');
+    
+    zipTitle.textContent = 'Extracting ' + filename + '...';
+    zipContent.innerHTML = '<div style="color:white; margin-top:50px;">Extracting files...</div>';
+    
+    const blob = await response.blob();
+    const zip = await JSZip.loadAsync(blob);
+    
+    zipTitle.textContent = filename;
+    zipContent.innerHTML = '';
+    currentZipObjectUrls.forEach(url => URL.revokeObjectURL(url));
+    currentZipObjectUrls = [];
+    
+    const imageFiles = [];
+    zip.forEach((relativePath, zipEntry) => {
+      const ext = relativePath.split('.').pop().toLowerCase();
+      if (!zipEntry.dir && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif'].includes(ext)) {
+        imageFiles.push(zipEntry);
+      }
+    });
+    
+    // Sort files naturally by name
+    imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+    
+    if (imageFiles.length === 0) {
+      zipContent.innerHTML = '<div style="color:white; margin-top:50px;">No images found in this ZIP archive.</div>';
+      return;
+    }
+    
+    for (const file of imageFiles) {
+      const fileBlob = await file.async("blob");
+      const objUrl = URL.createObjectURL(fileBlob);
+      currentZipObjectUrls.push(objUrl);
+      
+      const imgContainer = document.createElement('div');
+      imgContainer.style.width = '100%';
+      imgContainer.style.maxWidth = '800px';
+      imgContainer.style.background = '#111';
+      imgContainer.style.borderRadius = '8px';
+      imgContainer.style.overflow = 'hidden';
+      
+      const img = document.createElement('img');
+      img.src = objUrl;
+      img.style.width = '100%';
+      img.style.display = 'block';
+      img.style.height = 'auto';
+      img.loading = 'lazy';
+      
+      imgContainer.appendChild(img);
+      zipContent.appendChild(imgContainer);
+    }
+    
+  } catch (err) {
+    console.error(err);
+    zipTitle.textContent = 'Error';
+    zipContent.innerHTML = '<div style="color:#ff4444; margin-top:50px;">Failed to load ZIP archive.</div>';
+  }
+}

@@ -20,6 +20,17 @@
     </div>
     
   </div>
+
+  <div id="zip-viewer" class="hidden" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 2000; display: flex; flex-direction: column;">
+    <div style="padding: 10px; background: #222; display: flex; justify-content: space-between; align-items: center;">
+      <button id="close-zip-viewer" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 20px; font-weight: bold; cursor: pointer;">⬅️ Close ZIP</button>
+      <div id="zip-title" style="color: white; font-weight: bold; font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60vw;">Loading...</div>
+      <div style="width: 80px;"></div> <!-- Spacer for centering -->
+    </div>
+    <div id="zip-content" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center; padding: 20px; gap: 20px;">
+      <!-- Extracted images go here -->
+    </div>
+  </div>
   
   <div id="settings-menu">
     <h3>Settings</h3>
@@ -91,6 +102,7 @@
     <div id="feed-loading" class="loading">Loading...</div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
