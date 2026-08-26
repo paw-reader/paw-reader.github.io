@@ -1,6 +1,7 @@
 
 function showMediaUnavailableWarning(container, type = 'media') {
-  const siteName = currentSite.charAt(0).toUpperCase() + currentSite.slice(1);
+  const displayNames = { pawchive: 'Pawchive', kemono: 'Kemono', cum: 'Coomer' };
+  const siteName = displayNames[currentSite] || currentSite;
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; gap: 10px; padding: 20px; text-align: center; background: rgba(0,0,0,0.5); border-radius: 12px; box-sizing: border-box;">
       <span style="color: #ffb86c; font-size: 2rem;">⚠️</span>
@@ -1231,7 +1232,7 @@ async function loadMediaWithProgress(item) {
     const img = document.createElement('img');
     img.className = 'post-media';
     img.onload = () => { progressOverlay.style.display = 'none'; };
-    img.onerror = () => { showMediaUnavailableWarning(progressOverlay, type); };
+    img.onerror = () => { img.style.display = 'none'; showMediaUnavailableWarning(progressOverlay, type); };
     img.src = url;
     item.appendChild(img);
   }
