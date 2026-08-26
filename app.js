@@ -1272,7 +1272,7 @@ function createPostCard(post) {
 
   const title = document.createElement('div');
   title.className = 'post-title';
-  title.textContent = post.title || 'Untitled';
+  title.innerHTML = post.title || 'Untitled';
 
   info.appendChild(author);
   info.appendChild(title);
@@ -1425,8 +1425,8 @@ async function fetchPosts() {
               if (text) { firstNode = node; break; }
             }
             if (firstNode) {
-              const firstLine = (firstNode.textContent || '').trim();
-              post.title = (firstNode.textContent || '').trim();
+              // Use innerHTML to preserve <br> formatting within the first paragraph
+              post.title = firstNode.innerHTML || (firstNode.textContent || '').trim();
               // Remove the first paragraph from content so it doesn't duplicate in description
               firstNode.remove();
               post.content = tmp.innerHTML.trim();
