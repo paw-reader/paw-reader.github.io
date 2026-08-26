@@ -226,10 +226,37 @@ const sortSelect = document.getElementById('creator-sort');
 const serviceFilterSelect = document.getElementById('creator-service-filter');
 const paginationContainer = document.getElementById('creator-pagination');
 
+let searchTimeout;
 if(searchInput) {
   searchInput.addEventListener('input', () => {
-    creatorPage = 1;
-    filterAndSortCreators();
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(async () => {
+      creatorPage = 1;
+      
+      // Moxxy API (cum.st) paginates, so client-side search won't find missing creators.
+      // Trigger a server-side search and dynamically inject them into the client grid.
+      if (currentSite === 'cum' && searchInput.value.trim().length > 1) {
+        try {
+          const res = await fetch(`${PROXY_URL}/cum/api/v1/creators?q=${encodeURIComponent(searchInput.value.trim())}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.creators) {
+              const existingIds = new Set(allCreators.map(c => c.id));
+              data.creators.forEach(c => {
+                if (!existingIds.has(c.id)) {
+                  c.allPlatforms = [c];
+                  allCreators.push(c);
+                }
+              });
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to fetch server-side search for cum.st", e);
+        }
+      }
+      
+      filterAndSortCreators();
+    }, 400);
   });
 }
 
@@ -258,7 +285,7 @@ async function loadCreators() {
     if (currentSite === 'cum') {
       // Moxxy API paginates the creators list to 50 items, so standard fetch misses other services.
       // Explicitly fetch the top creators for known services to populate the client-side filter and grid.
-      const moxxyServices = ['onlyfans', 'fansly', 'patreon', 'fantia', 'fanbox', 'subscribestar'];
+      const moxxyServices = ['onlyfans', 'fansly', 'patreon'];
       for (const s of moxxyServices) {
         try {
           const res = await fetch(`${PROXY_URL}/${currentSite}/api/v1/creators?service=${s}&limit=50`);
