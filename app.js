@@ -1062,6 +1062,7 @@ async function loadMediaWithProgress(item) {
     infoText.style.maxWidth = '100%';
     infoText.style.overflow = 'auto';
     infoText.style.maxHeight = '40%';
+    infoText.className = 'zip-info-text';
     infoText.style.fontSize = '0.9rem';
     infoText.style.textAlign = 'left';
     infoText.textContent = `📦 ${filename}\nScanning contents...`;
@@ -1148,23 +1149,16 @@ async function loadMediaWithProgress(item) {
         const filenames = Object.keys(entries).filter(p => !p.endsWith('/') && !p.startsWith('__MACOSX/')).map(p => p.split('/').pop());
         
         let contentStr = `📦 ${filename}\n`;
-        const MAX_FILES = 10;
         
         if (filenames.length > 0) {
-          if (filenames.length > MAX_FILES) {
-            contentStr += `${filenames.length} files\n`;
-          }
-          const displayCount = Math.min(MAX_FILES, filenames.length);
-          for (let i = 0; i < displayCount; i++) {
-             const isLast = (i === displayCount - 1);
+          contentStr += `${filenames.length} files\n`;
+          for (let i = 0; i < filenames.length; i++) {
+             const isLast = (i === filenames.length - 1);
              if (isLast) {
                 contentStr += `└─${filenames[i]}\n`;
              } else {
                 contentStr += `├─${filenames[i]}\n`;
              }
-          }
-          if (filenames.length > MAX_FILES) {
-             contentStr += `└─ +${filenames.length - MAX_FILES} more...`;
           }
         } else {
           contentStr += `└─ (Empty or unreadable archive)`;
@@ -2318,17 +2312,10 @@ async function openZipGallery(zipUrl, filename, cachedBlob = null) {
 
 
 // --- Scroll Hijacker for Disabled Animations ---
-let lastHijackTime = 0;
+let disabledScrollTimeout = false;
 document.addEventListener('wheel', (e) => {
   if (!window.pawAnimationsDisabled) return;
-  if (e.target.closest('#zip-settings-viewer') || e.target.closest('#settings-menu') || e.target.closest('.media-progress') || e.target.closest('.creator-list')) return;
-  
-  // Throttle wheel events so a trackpad swipe doesn't fly through 10 posts
-  const now = Date.now();
-  if (now - lastHijackTime < 400) {
-    e.preventDefault();
-    return;
-  }
+  if (e.target.closest('#zip-settings-viewer') || e.target.closest('#settings-menu') || e.target.closest('.media-progress') || e.target.closest('.creator-list') || e.target.closest('.zip-info-text')) return;
   
   const carousel = e.target.closest('.media-carousel');
   const zipContent = e.target.closest('#zip-content');
@@ -2336,27 +2323,36 @@ document.addEventListener('wheel', (e) => {
   
   if (zipContent && !document.getElementById('zip-viewer').classList.contains('hidden')) {
     e.preventDefault();
-    lastHijackTime = now;
+    if (disabledScrollTimeout) return;
+    disabledScrollTimeout = true;
+    setTimeout(() => disabledScrollTimeout = false, 250);
+    
     const w = window.innerWidth;
     let target = Math.round(zipContent.scrollLeft / w) * w;
     if (e.deltaY > 0 || e.deltaX > 0) target += w;
     else if (e.deltaY < 0 || e.deltaX < 0) target -= w;
     target = Math.max(0, Math.min(target, zipContent.scrollWidth - zipContent.clientWidth));
     zipContent.scrollTo({ left: target, behavior: 'auto' });
-  } else if (carousel) {
-    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-      e.preventDefault();
-      lastHijackTime = now;
-      const w = window.innerWidth;
-      let target = Math.round(carousel.scrollLeft / w) * w;
-      if (e.deltaX > 0) target += w;
-      else if (e.deltaX < 0) target -= w;
-      target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
-      carousel.scrollTo({ left: target, behavior: 'auto' });
-    }
+    
+  } else if (carousel && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+    e.preventDefault();
+    if (disabledScrollTimeout) return;
+    disabledScrollTimeout = true;
+    setTimeout(() => disabledScrollTimeout = false, 250);
+    
+    const w = window.innerWidth;
+    let target = Math.round(carousel.scrollLeft / w) * w;
+    if (e.deltaX > 0) target += w;
+    else if (e.deltaX < 0) target -= w;
+    target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
+    carousel.scrollTo({ left: target, behavior: 'auto' });
+    
   } else if (feed && !document.getElementById('feed-view').classList.contains('hidden')) {
     e.preventDefault();
-    lastHijackTime = now;
+    if (disabledScrollTimeout) return;
+    disabledScrollTimeout = true;
+    setTimeout(() => disabledScrollTimeout = false, 250);
+    
     const h = window.innerHeight;
     let target = Math.round(feed.scrollTop / h) * h;
     if (e.deltaY > 0) target += h;
@@ -2380,18 +2376,15 @@ document.addEventListener('touchstart', (e) => {
 
 document.addEventListener('touchmove', (e) => {
   if (!window.pawAnimationsDisabled) return;
-  if (e.target.closest('#zip-settings-viewer') || e.target.closest('#settings-menu') || e.target.closest('.media-progress') || e.target.closest('.creator-list')) return;
+  if (e.target.closest('#zip-settings-viewer') || e.target.closest('#settings-menu') || e.target.closest('.media-progress') || e.target.closest('.creator-list') || e.target.closest('.zip-info-text')) return;
   
-  const dx = e.touches[0].clientX - globalTouchStartX;
-  const dy = e.touches[0].clientY - globalTouchStartY;
-  if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-     if (e.cancelable) e.preventDefault();
-  }
+  // Prevent all native touch scrolling when animations are disabled so we can snap instantly
+  if (e.cancelable) e.preventDefault();
 }, { passive: false });
 
 document.addEventListener('touchend', (e) => {
   if (!window.pawAnimationsDisabled) return;
-  if (e.target.closest('#zip-settings-viewer') || e.target.closest('#settings-menu') || e.target.closest('.media-progress') || e.target.closest('.creator-list')) return;
+  if (e.target.closest('#zip-settings-viewer') || e.target.closest('#settings-menu') || e.target.closest('.media-progress') || e.target.closest('.creator-list') || e.target.closest('.zip-info-text')) return;
   if (touchHijackHandled) return;
   
   const dx = globalTouchStartX - e.changedTouches[0].clientX;
@@ -2413,22 +2406,13 @@ document.addEventListener('touchend', (e) => {
        target = Math.max(0, Math.min(target, zipContent.scrollWidth - zipContent.clientWidth));
        zipContent.scrollTo({ left: target, behavior: 'auto' });
     }
-  } else if (carousel) {
-    if (Math.abs(dx) > Math.abs(dy)) {
-       const w = window.innerWidth;
-       let target = Math.round(carousel.scrollLeft / w) * w;
-       if (dx > 30) target += w;
-       else if (dx < -30) target -= w;
-       target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
-       carousel.scrollTo({ left: target, behavior: 'auto' });
-    } else if (feed) {
-       const h = window.innerHeight;
-       let target = Math.round(feed.scrollTop / h) * h;
-       if (dy > 30) target += h;
-       else if (dy < -30) target -= h;
-       target = Math.max(0, Math.min(target, feed.scrollHeight - feed.clientHeight));
-       feed.scrollTo({ top: target, behavior: 'auto' });
-    }
+  } else if (carousel && Math.abs(dx) > Math.abs(dy)) {
+    const w = window.innerWidth;
+    let target = Math.round(carousel.scrollLeft / w) * w;
+    if (dx > 30) target += w;
+    else if (dx < -30) target -= w;
+    target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
+    carousel.scrollTo({ left: target, behavior: 'auto' });
   } else if (feed && !document.getElementById('feed-view').classList.contains('hidden')) {
     const h = window.innerHeight;
     let target = Math.round(feed.scrollTop / h) * h;
