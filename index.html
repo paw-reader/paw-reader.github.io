@@ -22,8 +22,11 @@
   </div>
 
   <div id="zip-viewer" class="hidden" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 2000; display: flex; flex-direction: column;">
-    <button id="close-zip-viewer" style="position: absolute; top: 20px; left: 20px; z-index: 2010; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255,255,255,0.2); width: 36px; height: 36px; border-radius: 20px; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">⬅️</button>
-    <div id="zip-indicator" style="position: absolute; top: 20px; right: 20px; z-index: 2010; background: rgba(0,0,0,0.6); color: white; padding: 5px 12px; border-radius: 15px; font-size: 0.9rem; pointer-events: none;">1 / 1</div>
+    <div id="zip-nav" style="transition: opacity 0.3s; opacity: 1; position: absolute; width: 100%; height: 100%; pointer-events: none;">
+      <button id="close-zip-viewer" style="pointer-events: auto; position: absolute; top: 20px; left: 20px; z-index: 2010; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255,255,255,0.2); width: 36px; height: 36px; border-radius: 20px; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">⬅️</button>
+      <button id="zip-home-viewer" style="pointer-events: auto; position: absolute; top: 20px; right: 20px; z-index: 2010; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255,255,255,0.2); width: 36px; height: 36px; border-radius: 20px; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">🏠</button>
+      <div id="zip-indicator" style="pointer-events: auto; position: absolute; bottom: 20px; right: 20px; z-index: 2010; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 5px 12px; border-radius: 15px; font-size: 0.9rem; cursor: pointer;">1 / 1</div>
+    </div>
     <div id="zip-title" style="display: none;"></div>
     <div id="zip-content" style="flex: 1; overflow-x: scroll; overflow-y: hidden; display: flex; scroll-snap-type: x mandatory; scrollbar-width: none; background: #000;">
       <!-- Extracted images go here -->

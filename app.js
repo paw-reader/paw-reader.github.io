@@ -1007,13 +1007,23 @@ async function loadMediaWithProgress(item) {
         
         let contentStr = '';
         if (filenames.length > 0) {
-          contentStr = filenames.slice(0, 3).join(', ');
-          if (filenames.length > 3) contentStr += ` (+${filenames.length - 3} more)`;
+          const max = Math.min(3, filenames.length);
+          for (let i = 0; i < max; i++) {
+             const isLast = (i === filenames.length - 1);
+             if (isLast && filenames.length <= 3) {
+                contentStr += `<br>&nbsp;&nbsp;└─${filenames[i]}`;
+             } else {
+                contentStr += `<br>&nbsp;&nbsp;├─${filenames[i]}`;
+             }
+          }
+          if (filenames.length > 3) {
+             contentStr += `<br>&nbsp;&nbsp;└─(+${filenames.length - 3} more)`;
+          }
         } else {
-          contentStr = 'Empty archive';
+          contentStr = '<br>&nbsp;&nbsp;└─Empty archive';
         }
         
-        zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>${sizeStr} • ${contentStr}</small>`;
+        zipBtn.innerHTML = `<div style="text-align:center; margin-bottom:5px;">📦 Open ZIP Gallery</div><div style="font-size:0.85rem; opacity:0.8; font-weight:normal; text-align:left; display:inline-block; margin:auto; font-family:monospace;">${filename} <span style="opacity:0.6">(${sizeStr})</span>${contentStr}</div>`;
       })
       .catch(() => {
         zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Ready</small>`;
@@ -1792,6 +1802,8 @@ const zipTitle = document.getElementById('zip-title');
 const zipContent = document.getElementById('zip-content');
 const zipIndicator = document.getElementById('zip-indicator');
 const closeZipViewer = document.getElementById('close-zip-viewer');
+const zipNav = document.getElementById('zip-nav');
+const zipHomeViewer = document.getElementById('zip-home-viewer');
 let currentZipObjectUrls = [];
 
 if (closeZipViewer) {
@@ -1803,6 +1815,51 @@ if (closeZipViewer) {
   });
 }
 
+if (zipHomeViewer) {
+  zipHomeViewer.addEventListener('click', () => {
+    zipViewer.classList.add('hidden');
+    zipContent.innerHTML = '';
+    currentZipObjectUrls.forEach(url => URL.revokeObjectURL(url));
+    currentZipObjectUrls = [];
+    currentFeedCreatorName = null;
+    updateNavTabs(null);
+    showView(welcomeScreen, false);
+    if(navBack) navBack.classList.add('hidden');
+  });
+}
+
+if (zipIndicator) {
+  zipIndicator.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (currentZipObjectUrls.length === 0) return;
+    zipContent.dataset.targetScroll = 0;
+    zipContent.dataset.scrollDir = 'left';
+    zipContent.style.scrollSnapType = 'none';
+    zipContent.scrollTo({ left: 0, behavior: 'smooth' });
+  });
+}
+
+let zipNavTimeout;
+function showZipNav() {
+  if (zipNav) {
+    zipNav.style.opacity = '1';
+    if(closeZipViewer) closeZipViewer.style.pointerEvents = 'auto';
+    if(zipHomeViewer) zipHomeViewer.style.pointerEvents = 'auto';
+    if(zipIndicator) zipIndicator.style.pointerEvents = 'auto';
+    
+    clearTimeout(zipNavTimeout);
+    zipNavTimeout = setTimeout(() => {
+      zipNav.style.opacity = '0';
+      if(closeZipViewer) closeZipViewer.style.pointerEvents = 'none';
+      if(zipHomeViewer) zipHomeViewer.style.pointerEvents = 'none';
+      if(zipIndicator) zipIndicator.style.pointerEvents = 'none';
+    }, 2500);
+  }
+}
+
+zipViewer.addEventListener('mousemove', showZipNav);
+zipViewer.addEventListener('touchstart', showZipNav, {passive: true});
+
 zipContent.addEventListener('scroll', () => {
   if (currentZipObjectUrls.length <= 1) return;
   const index = Math.round(zipContent.scrollLeft / zipContent.clientWidth) + 1;
@@ -1810,7 +1867,8 @@ zipContent.addEventListener('scroll', () => {
 });
 
 zipViewer.addEventListener('click', (e) => {
-  if (e.target.id === 'close-zip-viewer') return;
+  showZipNav();
+  if (e.target.tagName.toLowerCase() === 'button' || e.target.id === 'zip-indicator') return;
   const x = e.clientX;
   const w = window.innerWidth;
   
