@@ -172,6 +172,7 @@ if (siteSelector) {
         contentFilter.style.display = 'none';
         contentFilter.value = 'all'; // Default to all for Kemono/Pawchive
       }
+    }
   }
   
   updateSiteSpecificUI();
