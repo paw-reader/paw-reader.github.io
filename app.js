@@ -462,6 +462,8 @@ navHome.addEventListener('click', () => {
 
 if(navBack) {
   navBack.addEventListener('click', () => {
+    currentFeedCreatorName = null;
+    updateNavTabs(null); // Hide creator tabs when going back to list
     showView(creatorsView, true);
     navBack.classList.add('hidden');
   });
