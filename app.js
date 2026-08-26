@@ -876,6 +876,10 @@ async function fetchPosts() {
         // Normalize Moxxy API (cum.st) to Kemono API format
         if (currentSite === 'cum') {
           post.user = post.user || post.creatorId;
+          if (!post.user) {
+            const match = currentFeedEndpoint.match(/\/user\/([^\/]+)/);
+            if (match) post.user = match[1];
+          }
           post.content = post.content || post.captionHtml || '';
           
           // Moxxy doesn't use file paths and their CDN routing for storageKeys is unknown/down.
