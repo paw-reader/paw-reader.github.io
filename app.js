@@ -873,6 +873,31 @@ async function fetchPosts() {
       }
 
       posts.forEach(post => {
+        // Normalize Moxxy API (cum.st) to Kemono API format
+        if (currentSite === 'cum') {
+          post.user = post.user || post.creatorId;
+          post.content = post.content || post.captionHtml || '';
+          
+          // Moxxy doesn't use file paths, it uses storageKey hashes. 
+          // We will attempt to reconstruct the path, though their CDN might be down.
+          if (!post.file && post.attachments && post.attachments.length > 0) {
+             const first = post.attachments.find(a => a.storageKey && a.variants && a.variants.length > 0);
+             if (first) {
+                 const hash = first.storageKey;
+                 const ext = first.variants[0].name.split('.').pop() || 'jpg';
+                 post.file = { path: `/${hash.substring(0,2)}/${hash.substring(2,4)}/${hash}.${ext}` };
+             }
+          }
+          
+          if (post.attachments && post.attachments.length > 0) {
+             post.attachments = post.attachments.filter(a => a.storageKey && a.variants && a.variants.length > 0).map(att => {
+                 const hash = att.storageKey;
+                 const ext = att.variants[0].name.split('.').pop() || 'jpg';
+                 return { path: `/${hash.substring(0,2)}/${hash.substring(2,4)}/${hash}.${ext}` };
+             });
+          }
+        }
+
         const card = createPostCard(post);
         feed.appendChild(card);
       });
