@@ -7,7 +7,7 @@ function showMediaUnavailableWarning(container, type = 'media') {
       <span style="color: #ffb86c; font-size: 2rem;">⚠️</span>
       <span style="color: #ffb86c; font-size: 1.2rem; font-weight: bold;">${type === 'zip' ? 'Archive' : 'Media'} Unavailable</span>
       <span style="color: #ccc; font-size: 0.95rem; font-weight: normal; max-width: 250px; line-height: 1.4;">
-        This file has not yet been imported to ${siteName}, or it has been removed.
+        This file has not yet been imported to ${siteName}, or the server is busy/unavailable.
       </span>
     </div>
   `;
@@ -523,6 +523,16 @@ navHome.addEventListener('click', () => {
   updateNavTabs(null); // Hide creator tabs when going home
   showView(welcomeScreen, false);
   if(navBack) navBack.classList.add('hidden');
+  
+  // Clear creator view state
+  creatorPage = 1;
+  if (searchInput) searchInput.value = '';
+  if (sortSelect) sortSelect.value = 'followers-desc';
+  if (contentFilterSelect) contentFilterSelect.value = 'all';
+  if (serviceFilterSelect) {
+    const checkboxes = serviceFilterSelect.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = false);
+  }
 });
 
 if(navBack) {

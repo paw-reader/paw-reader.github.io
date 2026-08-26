@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<div id="test" style="color: red;">Hello</div>
+<script>
+  const el = document.getElementById('test');
+  console.log('initial:', el.style.color);
+  el.style.color = 'blue';
+  console.log('modified:', el.style.color);
+  el.style.color = '';
+  console.log('restored:', el.style.color);
+</script>
