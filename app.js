@@ -809,6 +809,7 @@ function resetFeed() {
 
 function getMediaUrl(path) {
   if (!path) return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
   if (currentSite === 'kemono') {
     // Kemono's main CDN (n3) is currently down/dropping connections. 
     // We use their thumbnail server as a fallback so images at least load!
@@ -1039,6 +1040,23 @@ function createPostCard(post) {
     });
   }
 
+  // Extract inline images from post content (very common in Announcements)
+  let cleanContent = post.content || post.substring || "";
+  if (cleanContent) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = cleanContent;
+    const inlineImgs = tmp.querySelectorAll('img');
+    inlineImgs.forEach(img => {
+      const src = img.getAttribute('src');
+      if (src && !allMedia.includes(src)) {
+        allMedia.push(src);
+      }
+      img.remove(); // Strip it from the text info overlay!
+    });
+    // Re-serialize content without the inline images
+    cleanContent = tmp.innerHTML;
+  }
+
   if (allMedia.length === 0 && settingHideNoMedia && settingHideNoMedia.checked) {
     // Only apply the "Hide empty posts" rule to the main posts feed. 
     // Announcements and DMs are expected to be text-only!
@@ -1169,7 +1187,6 @@ function createPostCard(post) {
 
   const content = document.createElement('div');
   content.className = 'post-content';
-  let cleanContent = post.content || post.substring || "";
   
   if (cleanContent) {
     cleanContent = cleanContent.replace(/<a /gi, '<a target="_blank" rel="noopener noreferrer" ');
