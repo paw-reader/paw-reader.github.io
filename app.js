@@ -146,6 +146,19 @@ const creatorsLoading = document.getElementById('creators-loading');
 const btnLatest = document.getElementById('btn-latest');
 const btnCreators = document.getElementById('btn-creators');
 const siteSelector = document.getElementById('site-selector');
+
+const settingHideNoMedia = document.getElementById('setting-hide-no-media');
+if (settingHideNoMedia) {
+  settingHideNoMedia.checked = localStorage.getItem('paw_hideNoMedia') === 'true';
+  settingHideNoMedia.addEventListener('change', () => {
+    localStorage.setItem('paw_hideNoMedia', settingHideNoMedia.checked);
+    if (feedView && feedView.classList.contains('active')) {
+      resetFeed();
+      fetchPosts();
+    }
+  });
+}
+
 if (siteSelector) {
   currentSite = siteSelector.value;
   
@@ -883,6 +896,10 @@ function createPostCard(post) {
     });
   }
 
+  if (allMedia.length === 0 && settingHideNoMedia && settingHideNoMedia.checked) {
+    return null; // Skip rendering this post
+  }
+
   if (allMedia.length > 0) {
     allMedia.forEach(mediaPath => {
       const item = document.createElement('div');
@@ -1153,7 +1170,9 @@ async function fetchPosts() {
         }
 
         const card = createPostCard(post);
-        feed.appendChild(card);
+        if (card) {
+          feed.appendChild(card);
+        }
       });
 
       offset += posts.length;
