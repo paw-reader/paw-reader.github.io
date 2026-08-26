@@ -572,7 +572,6 @@ async function loadMediaWithProgress(item) {
     attachMedia(item, blob, type);
     progressOverlay.style.display = 'none';
   } catch (error) {
-    console.warn(`Failed to load media with progress (${error.message}), falling back to direct load...`);
     progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Direct Load</span>`;
     const img = document.createElement('img');
     img.className = 'post-media';
