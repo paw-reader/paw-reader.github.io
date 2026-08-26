@@ -770,13 +770,12 @@ function createPostCard(post) {
   const content = document.createElement('div');
   content.className = 'post-content';
   let cleanContent = post.content || post.substring || "";
-  if (!cleanContent) {
-    cleanContent = 'No description provided.';
-  } else {
+  
+  if (cleanContent) {
     cleanContent = cleanContent.replace(/<a /gi, '<a target="_blank" rel="noopener noreferrer" ');
+    content.innerHTML = cleanContent;
+    info.appendChild(content);
   }
-  content.innerHTML = cleanContent;
-  info.appendChild(content);
 
   
   
@@ -899,7 +898,8 @@ async function fetchPosts() {
             tmp.innerHTML = post.content;
             let plainText = (tmp.textContent || tmp.innerText || '').trim();
             if (plainText) {
-              post.title = plainText.length > 60 ? plainText.substring(0, 57) + '...' : plainText;
+              post.title = plainText; // No truncation so no text is lost
+              post.content = ''; // Clear description to prevent duplication
             }
           }
           if (!post.file && post.attachments && post.attachments.length > 0) {
