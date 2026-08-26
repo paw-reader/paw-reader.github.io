@@ -350,30 +350,39 @@ function renderCreatorsPage() {
   const end = start + creatorsPerPage;
   const pageCreators = filteredCreators.slice(start, end);
   
+  const serviceFilter = serviceFilterSelect ? serviceFilterSelect.value : 'all';
+  
   pageCreators.forEach(creator => {
     const card = document.createElement('div');
     card.className = 'creator-card';
-    card.style.backgroundColor = getServiceColor(creator.service);
     
     let currentPlatformIndex = 0;
+    if (serviceFilter !== 'all' && creator.allPlatforms) {
+      const idx = creator.allPlatforms.findIndex(p => p.service === serviceFilter);
+      if (idx !== -1) currentPlatformIndex = idx;
+    }
+    
+    const initialPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
+    
+    card.style.backgroundColor = getServiceColor(initialPlatform.service);
     
     const img = document.createElement('img');
     img.className = 'creator-image';
     if (currentSite === 'cum') {
-      img.src = `https://img.cum.st/creator/${creator.service}/${creator.id}/avatar.webp`;
+      img.src = `https://img.cum.st/creator/${initialPlatform.service}/${initialPlatform.id}/avatar.webp`;
     } else {
-      img.src = `${PROXY_URL}/${currentSite}/icons/${creator.service}/${creator.id}`;
+      img.src = `${PROXY_URL}/${currentSite}/icons/${initialPlatform.service}/${initialPlatform.id}`;
     }
     img.loading = 'lazy';
     img.onerror = () => { img.style.display = 'none'; };
     
     const name = document.createElement('div');
     name.className = 'creator-name';
-    name.textContent = creator.name;
+    name.textContent = initialPlatform.name;
     
     const service = document.createElement('div');
     service.className = 'creator-service';
-    service.textContent = creator.service;
+    service.textContent = initialPlatform.service;
     
     card.appendChild(img);
     card.appendChild(name);
