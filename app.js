@@ -357,7 +357,7 @@ function renderCreatorsPage() {
     card.addEventListener('click', () => {
       resetFeed();
       const selectedPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
-      currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${selectedPlatform.service}/user/${selectedPlatform.id}`;
+      currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${selectedPlatform.service}/user/${selectedPlatform.id}/posts`;
       if(navBack) navBack.classList.remove('hidden');
       showView(feedView, true, true);
       fetchPosts();
