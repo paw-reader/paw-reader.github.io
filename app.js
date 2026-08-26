@@ -771,6 +771,7 @@ function createPostCard(post) {
   serviceIcon.style.width = '18px';
   serviceIcon.style.height = '18px';
   serviceIcon.style.objectFit = 'contain';
+  serviceIcon.style.marginBottom = '4px'; // Optical alignment with text baseline
   serviceIcon.title = post.service; // tooltip
   serviceIcon.onerror = () => {
     serviceIcon.style.display = 'none';
