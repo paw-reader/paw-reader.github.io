@@ -156,6 +156,7 @@ let isFetching = false;
 let hasMore = true;
 const limit = 50;
 let currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/posts`; // Default to global latest
+let currentFeedCreatorName = null;
 
 // Intersection observer for feed
 const observerOptions = {
@@ -197,11 +198,13 @@ if(navBack) {
   });
 }
 
-btnLatest.addEventListener('click', () => {
+btnLatest.addEventListener('click', async () => {
   resetFeed();
   currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/posts`;
+  currentFeedCreatorName = null;
   if(navBack) navBack.classList.add('hidden');
   showView(feedView, true, true);
+  await loadCreators(); // Ensure global creator list is ready before rendering posts
   fetchPosts();
 });
 
@@ -369,6 +372,7 @@ function renderCreatorsPage() {
       resetFeed();
       const selectedPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
       currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/${selectedPlatform.service}/user/${selectedPlatform.id}/posts`;
+      currentFeedCreatorName = creator.name;
       if(navBack) navBack.classList.remove('hidden');
       showView(feedView, true, true);
       fetchPosts();
@@ -751,7 +755,10 @@ function createPostCard(post) {
   
   const author = document.createElement('div');
   author.className = 'post-author';
-  author.textContent = `Creator: ${post.user} (${post.service})`;
+  
+  const creator = allCreators.find(c => c.id === post.user && c.service === post.service);
+  const displayName = post.authorName || (creator ? creator.name : currentFeedCreatorName) || post.user;
+  author.textContent = `Creator: ${displayName} (${post.service})`;
 
   const title = document.createElement('div');
   title.className = 'post-title';
@@ -884,6 +891,7 @@ async function fetchPosts() {
             const match = currentFeedEndpoint.match(/\/user\/([^\/]+)/);
             if (match) post.user = match[1];
           }
+          post.authorName = post.creatorName;
           // Map Moxxy storageKeys to the correct e1.cum.st path format
           post.content = post.content || post.captionHtml || '';
           if (!post.file && post.attachments && post.attachments.length > 0) {
