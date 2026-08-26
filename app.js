@@ -194,7 +194,7 @@ function updateNavTabs(creator) {
   if (currentSite === 'kemono' || currentSite === 'pawchive') {
     tabs = ['Posts', 'Announcements', 'Tags', 'DMs', 'Linked Accounts', 'Similar Artists'];
   } else if (currentSite === 'cum') {
-    tabs = ['Posts', 'DMs', 'Similar Creators'];
+    tabs = ['Posts', 'DMs', 'Linked Accounts', 'Similar Creators'];
   }
   
   // Filter tabs based on creator metadata if available
@@ -439,7 +439,14 @@ function showView(viewElement, showNav = true, showToggle = false) {
   
   if (viewElement === feedView) {
     nav.classList.add('auto-hide');
-    if (navTabs) navTabs.classList.remove('hidden');
+    // Only show creator tabs when viewing a specific creator — not the global latest feed
+    if (navTabs) {
+      if (currentFeedCreatorName) {
+        navTabs.classList.remove('hidden');
+      } else {
+        navTabs.classList.add('hidden');
+      }
+    }
     updateNavVisibility();
   } else {
     nav.classList.remove('auto-hide');
@@ -464,6 +471,7 @@ btnLatest.addEventListener('click', async () => {
   resetFeed();
   currentFeedEndpoint = `${PROXY_URL}/${currentSite}/api/v1/posts`;
   currentFeedCreatorName = null;
+  updateNavTabs(null); // Hide tabs — we're on global feed now
   if(navBack) navBack.classList.add('hidden');
   showView(feedView, true, true);
   await loadCreators(); // Ensure global creator list is ready before rendering posts
