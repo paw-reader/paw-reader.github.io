@@ -769,7 +769,7 @@ function createPostCard(post) {
   const serviceIcon = document.createElement('img');
   serviceIcon.src = `icons/${post.service}.svg`;
   serviceIcon.style.objectFit = 'contain';
-  serviceIcon.style.flexShrink = '0';
+  serviceIcon.style.flexShrink = '0'; // Prevent icon from shrinking during flex layout changes
   
   if (post.service === 'fantia') {
     serviceIcon.style.width = '50px';
@@ -777,6 +777,10 @@ function createPostCard(post) {
     serviceIcon.style.marginBottom = '0px';
   } else if (post.service === 'dlsite') {
     serviceIcon.style.width = '50px';
+    serviceIcon.style.height = '24px';
+    serviceIcon.style.marginBottom = '4px';
+  } else if (post.service === 'onlyfans') {
+    serviceIcon.style.width = '24px';
     serviceIcon.style.height = '24px';
     serviceIcon.style.marginBottom = '4px';
   } else {
