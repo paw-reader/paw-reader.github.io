@@ -1093,12 +1093,12 @@ async function loadMediaWithProgress(item) {
     return;
   }
   
-  if (type === 'video') {
+  if (type === 'video' || type === 'audio') {
     progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Buffering Video</span>`;
-    const video = document.createElement('video');
+    const video = document.createElement(type === 'video' ? 'video' : 'audio');
     video.className = 'post-media';
-    video.loop = true;
-    video.muted = true;
+    if (type === 'video') video.loop = true;
+    if (type === 'video') video.muted = true;
     video.playsInline = true;
     video.controls = true;
     video.addEventListener('error', () => {
@@ -1240,8 +1240,8 @@ async function loadMediaWithProgress(item) {
 
 function attachMedia(item, blob, type) {
   const objUrl = URL.createObjectURL(blob);
-  if (type === 'video') {
-    const video = document.createElement('video');
+  if (type === 'video' || type === 'audio') {
+    const video = document.createElement(type === 'video' ? 'video' : 'audio');
     video.className = 'post-media';
     video.src = objUrl;
     video.loop = true;
@@ -1307,7 +1307,7 @@ function createPostCard(post) {
     });
   
   let allMedia = [];
-  const supportedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg', 'mp4', 'webm', 'mov', 'zip'];
+  const supportedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg', 'mp4', 'webm', 'mov', 'zip', 'mp3', 'ogg', 'wav', 'm4a'];
   function categorizeFile(fileObj) {
     if (!fileObj || !fileObj.path) return;
     const ext = fileObj.path.split('.').pop().toLowerCase();
@@ -1355,6 +1355,7 @@ function createPostCard(post) {
       
       const ext = mediaPath.split('.').pop().toLowerCase();
       const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
+      const isAudio = ['mp3', 'ogg', 'wav', 'm4a'].includes(ext);
       
       const progressOverlay = document.createElement('div');
       progressOverlay.className = 'media-progress';
@@ -1363,7 +1364,7 @@ function createPostCard(post) {
       progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Connecting...</span>`;
         item.dataset.url = getMediaUrl(mediaPath);
         item.dataset.path = mediaPath; // <--- ADD THIS LINE
-        item.dataset.type = ext === 'zip' ? 'zip' : isVideo ? 'video' : 'image';
+        item.dataset.type = ext === 'zip' ? 'zip' : isVideo ? 'video' : isAudio ? 'audio' : 'image';
         carousel.appendChild(item);
         mediaObserver.observe(item);
     });
@@ -1617,15 +1618,27 @@ async function fetchPosts() {
             }
           }
           if (!post.file && post.attachments && post.attachments.length > 0) {
-             const first = post.attachments.find(a => a.storageKey && a.variants && a.variants.length > 0);
-             if (first) {
+             const first = post.attachments[0];
+             if (first.storageKey && first.variants && first.variants.length > 0) {
                  post.file = { path: `/media/${first.storageKey}/${first.variants[0].name}` };
+             } else {
+                 let ext = 'jpg';
+                 if (first.mimeType) ext = first.mimeType.split('/').pop().toLowerCase().replace('jpeg', 'jpg');
+                 else if (first.kind === 'video') ext = 'mp4';
+                 post.file = { path: `/unimported.${ext}` };
              }
           }
           
           if (post.attachments && post.attachments.length > 0) {
-             post.attachments = post.attachments.filter(a => a.storageKey && a.variants && a.variants.length > 0).map(att => {
-                 return { path: `/media/${att.storageKey}/${att.variants[0].name}` };
+             post.attachments = post.attachments.map(att => {
+                 if (att.storageKey && att.variants && att.variants.length > 0) {
+                     return { path: `/media/${att.storageKey}/${att.variants[0].name}` };
+                 } else {
+                     let ext = 'jpg';
+                     if (att.mimeType) ext = att.mimeType.split('/').pop().toLowerCase().replace('jpeg', 'jpg');
+                     else if (att.kind === 'video') ext = 'mp4';
+                     return { path: `/unimported.${ext}` };
+                 }
              });
           }
         }
