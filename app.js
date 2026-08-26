@@ -1006,24 +1006,27 @@ async function loadMediaWithProgress(item) {
         });
         
         let contentStr = '';
+        let headerSize = sizeStr;
+        const MAX_FILES = 10;
+        
         if (filenames.length > 0) {
-          const max = Math.min(3, filenames.length);
-          for (let i = 0; i < max; i++) {
-             const isLast = (i === filenames.length - 1);
-             if (isLast && filenames.length <= 3) {
-                contentStr += `<br>&nbsp;&nbsp;└─${filenames[i]}`;
+          if (filenames.length > MAX_FILES) {
+            headerSize = `${sizeStr}, ${filenames.length} files`;
+          }
+          const displayCount = Math.min(MAX_FILES, filenames.length);
+          for (let i = 0; i < displayCount; i++) {
+             const isLast = (i === displayCount - 1);
+             if (isLast) {
+                contentStr += `<br>&nbsp;&nbsp;└──${filenames[i]}`;
              } else {
-                contentStr += `<br>&nbsp;&nbsp;├─${filenames[i]}`;
+                contentStr += `<br>&nbsp;&nbsp;├──${filenames[i]}`;
              }
           }
-          if (filenames.length > 3) {
-             contentStr += `<br>&nbsp;&nbsp;└─(+${filenames.length - 3} more)`;
-          }
         } else {
-          contentStr = '<br>&nbsp;&nbsp;└─Empty archive';
+          contentStr = '<br>&nbsp;&nbsp;└──Empty archive';
         }
         
-        zipBtn.innerHTML = `<div style="text-align:center; margin-bottom:5px;">📦 Open ZIP Gallery</div><div style="font-size:0.85rem; opacity:0.8; font-weight:normal; text-align:left; display:inline-block; margin:auto; font-family:monospace;">${filename} <span style="opacity:0.6">(${sizeStr})</span>${contentStr}</div>`;
+        zipBtn.innerHTML = `<div style="text-align:center; margin-bottom:5px;">📦 Open ZIP Gallery</div><div style="font-size:0.85rem; opacity:0.8; font-weight:normal; text-align:left; display:inline-block; margin:auto; font-family:monospace;">${filename} <span style="opacity:0.6">(${headerSize})</span>${contentStr}</div>`;
       })
       .catch(() => {
         zipBtn.innerHTML = `📦 Open ZIP Gallery<br><small style="opacity:0.8; font-weight:normal;">${filename}<br>Ready</small>`;
@@ -1839,26 +1842,29 @@ if (zipIndicator) {
   });
 }
 
-let zipNavTimeout;
-function showZipNav() {
-  if (zipNav) {
-    zipNav.style.opacity = '1';
-    if(closeZipViewer) closeZipViewer.style.pointerEvents = 'auto';
-    if(zipHomeViewer) zipHomeViewer.style.pointerEvents = 'auto';
-    if(zipIndicator) zipIndicator.style.pointerEvents = 'auto';
-    
-    clearTimeout(zipNavTimeout);
-    zipNavTimeout = setTimeout(() => {
-      zipNav.style.opacity = '0';
-      if(closeZipViewer) closeZipViewer.style.pointerEvents = 'none';
-      if(zipHomeViewer) zipHomeViewer.style.pointerEvents = 'none';
-      if(zipIndicator) zipIndicator.style.pointerEvents = 'none';
-    }, 2500);
+function updateZipNavVisibility(e) {
+  let isTop = false;
+  if (e.type === 'touchstart') {
+     isTop = e.touches[0].clientY < 100;
+  } else {
+     isTop = e.clientY < 100;
+  }
+  
+  if (isTop) {
+     if(zipNav) zipNav.style.opacity = '1';
+     if(closeZipViewer) closeZipViewer.style.pointerEvents = 'auto';
+     if(zipHomeViewer) zipHomeViewer.style.pointerEvents = 'auto';
+     if(zipIndicator) zipIndicator.style.transform = 'translateY(45px)';
+  } else {
+     if(zipNav) zipNav.style.opacity = '0';
+     if(closeZipViewer) closeZipViewer.style.pointerEvents = 'none';
+     if(zipHomeViewer) zipHomeViewer.style.pointerEvents = 'none';
+     if(zipIndicator) zipIndicator.style.transform = 'translateY(0)';
   }
 }
 
-zipViewer.addEventListener('mousemove', showZipNav);
-zipViewer.addEventListener('touchstart', showZipNav, {passive: true});
+zipViewer.addEventListener('mousemove', updateZipNavVisibility);
+zipViewer.addEventListener('touchstart', updateZipNavVisibility, {passive: true});
 
 zipContent.addEventListener('scroll', () => {
   if (currentZipObjectUrls.length <= 1) return;
@@ -1867,7 +1873,6 @@ zipContent.addEventListener('scroll', () => {
 });
 
 zipViewer.addEventListener('click', (e) => {
-  showZipNav();
   if (e.target.tagName.toLowerCase() === 'button' || e.target.id === 'zip-indicator') return;
   const x = e.clientX;
   const w = window.innerWidth;
