@@ -166,7 +166,8 @@ textarea,
     transform: none;
     max-width: none;
     width: auto;
-    justify-content: flex-start;
+    justify-content: center;
+    justify-content: safe center; 
     display: flex;
     gap: 8px;
     overflow-x: auto;
@@ -220,6 +221,7 @@ textarea,
   font-size: 3rem;
   margin-bottom: 10px;
   background: -webkit-linear-gradient(#fff, #aaa);
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -395,6 +397,7 @@ textarea,
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
+  line-clamp: 3;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
@@ -1150,5 +1153,15 @@ body.no-animations * {
     top: 15px;
     right: 15px;
     transition: none;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 600px), (orientation: landscape) and (max-width: 900px) {
+  #nav-tabs {
+    justify-content: center; 
+  }
+  
+  body.nav-visible .carousel-indicator {
+    top: 15px; 
   }
 }

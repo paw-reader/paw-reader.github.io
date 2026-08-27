@@ -56,10 +56,10 @@ export function updateSiteSpecificUI() {
   if (contentFilter) {
     if (state.currentSite === "cum") {
       contentFilter.style.display = "";
-      contentFilter.value = "content"; // Default to with content for cum.st
+      contentFilter.value = "content";
     } else {
       contentFilter.style.display = "none";
-      contentFilter.value = "all"; // Default to all for Kemono/Pawchive
+      contentFilter.value = "all";
     }
   }
 
@@ -149,7 +149,7 @@ export function updateNavTabs(creator) {
   tabs = tabs.filter((tab) => {
     if (tab === "DMs" && (creator.dmCount === 0 || creator.dmCount === null)) return false;
     if (tab === "Posts" && (creator.postCount === 0 || creator.postCount === null)) return false;
-    if (tab === "Linked Accounts" && (!creator.allPlatforms || creator.allPlatforms.length <= 1)) return false;
+    if (tab === "Linked Accounts" && state.currentSite === "cum" && (!creator.allPlatforms || creator.allPlatforms.length <= 1)) return false;
     return true;
   });
 
@@ -194,7 +194,13 @@ export function updateNavTabs(creator) {
     if (tab === "Linked Accounts") {
       const srv = (creator.service || "").toLowerCase();
       btn.innerHTML = `<img src="icons/${srv}.svg" style="width: 14px; height: 14px; object-fit: contain;" onerror="this.style.display='none'"> &middot; Linked Accounts`;
-      btn.style.display = "flex";
+      
+      if ((state.currentSite === "kemono" || state.currentSite === "pawchive") && (!creator.allPlatforms || creator.allPlatforms.length <= 1)) {
+        btn.style.display = "none";
+      } else {
+        btn.style.display = "flex";
+      }
+      
       btn.style.alignItems = "center";
       btn.style.gap = "6px";
     } else {
@@ -204,6 +210,7 @@ export function updateNavTabs(creator) {
 
     btn.addEventListener("click", (e) => {
       if (!isNavInteractive()) return;
+
       if (state.currentSite === "cum" && tab === "Posts" && postCategories.length > 0) {
         const existingDropdown = document.getElementById("cum-posts-dropdown");
         if (existingDropdown) {
@@ -432,7 +439,6 @@ export function updateNavTabs(creator) {
         };
 
         if (state.currentSite === "kemono" || state.currentSite === "pawchive") {
-          // Fallback: Scrape HTML from the recommended page via proxy without an official API
           const endpoint = `${PROXY_URL}/${state.currentSite}/${creator.service}/user/${creator.id}/recommended`;
           fetch(endpoint)
             .then((res) => {
@@ -511,21 +517,80 @@ export function updateNavTabs(creator) {
 
     if (
       (state.currentSite === "kemono" || state.currentSite === "pawchive") &&
-      (tab === "DMs" || tab === "Announcements" || tab === "Fancards")
+      (tab === "DMs" || tab === "Announcements" || tab === "Fancards" || tab === "Linked Accounts")
     ) {
-      btn.style.display = "none";
-      fetch(
-        `${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}?limit=1`
-      )
-        .then((res) => res.json())
-        .then((data) => {
-          const arr =
-            data.posts || data.announcements || data.dms || data.fancards || (Array.isArray(data) ? data : []);
-          if (arr.length > 0) {
-            btn.style.display = "";
+      if (tab === "Linked Accounts") {
+        const cacheKey = `_linksFetched`;
+        if (creator[cacheKey] !== undefined) {
+          btn.style.display = creator.allPlatforms && creator.allPlatforms.length > 1 ? "flex" : "none";
+        } else {
+          fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/links`)
+            .then(res => res.ok ? res.json() : [])
+            .then(arr => {
+              if (Array.isArray(arr) && arr.length > 0) {
+                creator.allPlatforms = creator.allPlatforms || [{ id: creator.id, service: creator.service, name: creator.name }];
+                
+                arr.forEach(link => {
+                  const exists = creator.allPlatforms.find(p => p.id === link.id && p.service === link.service);
+                  if (!exists) {
+                    creator.allPlatforms.push({
+                      id: link.id,
+                      service: link.service,
+                      name: link.name || link.id
+                    });
+                  }
+                });
+              }
+              creator[cacheKey] = true;
+              btn.style.display = creator.allPlatforms && creator.allPlatforms.length > 1 ? "flex" : "none";
+            })
+            .catch(() => {
+              creator[cacheKey] = true;
+            });
+        }
+      } else {
+        const cacheKey = `_has${tab}`;
+
+        if (creator[cacheKey] !== undefined) {
+          btn.style.display = creator[cacheKey] ? "" : "none";
+        } else {
+          btn.style.display = "none";
+          
+          if (state.currentSite === "pawchive" && tab === "DMs") {
+            fetch(`${PROXY_URL}/pawchive/${creator.service}/user/${creator.id}/dms`)
+              .then(res => {
+                if (!res.ok) throw new Error("No DMs found or blocked");
+                return res.text();
+              })
+              .then(html => {
+                if (html.includes('<article') || html.includes('post-card')) {
+                  btn.style.display = "";
+                  creator[cacheKey] = true;
+                } else {
+                  creator[cacheKey] = false;
+                }
+              })
+              .catch(() => {
+                creator[cacheKey] = false;
+              });
+          } else {
+            fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}?limit=1`)
+              .then((res) => res.json())
+              .then((data) => {
+                const arr = data.posts || data.announcements || data.dms || data.fancards || (Array.isArray(data) ? data : []);
+                if (arr.length > 0) {
+                  btn.style.display = "";
+                  creator[cacheKey] = true;
+                } else {
+                  creator[cacheKey] = false;
+                }
+              })
+              .catch(() => {
+                creator[cacheKey] = false;
+              });
           }
-        })
-        .catch(() => {});
+        }
+      }
     }
 
     navTabs.appendChild(btn);

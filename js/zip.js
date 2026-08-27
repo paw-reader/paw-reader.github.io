@@ -24,7 +24,7 @@ export function setZipNavVisible(visible, manual = false) {
     state.zipNavManualVisible = visible;
   }
 
-  const isDesktop = window.innerWidth > 768;
+  const isDesktop = window.innerWidth > 768 && window.innerHeight > 500;
 
   if (visible) {
     if (zipNav && !zipNav.classList.contains("visible")) {
@@ -35,14 +35,14 @@ export function setZipNavVisible(visible, manual = false) {
       if (isDesktop) {
         zipIndicator.style.transform = "translateY(50px)"; 
       } else {
-        zipIndicator.style.transform = "";
+        zipIndicator.style.transform = ""; 
       }
     }
   } else {
     if (zipNav) zipNav.classList.remove("visible");
     if (zipIndicator) {
       if (isDesktop) {
-        zipIndicator.style.transform = "translateY(0px)"; 
+        zipIndicator.style.transform = "translateY(0px)";
       } else {
         zipIndicator.style.transform = "";
       }

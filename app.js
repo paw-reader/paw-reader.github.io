@@ -167,12 +167,25 @@ if (navHome) {
 if (navBack) {
   navBack.addEventListener('click', () => {
     if (!isNavInteractive()) return;
-    state.currentFeedCreatorName = null;
-    updateNavTabs(null);
-    showView(creatorsView, true);
-    navBack.classList.add('hidden');
     
-    resetFeed();
+    if (feedView && feedView.classList.contains('active')) {
+      const wasCreatorFeed = !!state.currentFeedCreatorName;
+      
+      state.currentFeedCreatorName = null;
+      updateNavTabs(null);
+      resetFeed();
+      
+      if (wasCreatorFeed) {
+        showView(creatorsView, true);
+      } else {
+        showView(welcomeScreen, false);
+        navBack.classList.add('hidden');
+      }
+    } 
+    else if (creatorsView && creatorsView.classList.contains('active')) {
+      showView(welcomeScreen, false);
+      navBack.classList.add('hidden');
+    }
   });
 }
 
@@ -183,7 +196,7 @@ if (btnLatest) {
     state.currentFeedEndpoint = `${PROXY_URL}/${state.currentSite}/api/v1/posts`;
     state.currentFeedCreatorName = null;
     updateNavTabs(null);
-    if (navBack) navBack.classList.add('hidden');
+    if (navBack) navBack.classList.remove('hidden'); 
     showView(feedView, true);
     await loadCreators();
     fetchPosts();
@@ -194,6 +207,7 @@ const btnCreators = document.getElementById('btn-creators');
 if (btnCreators) {
   btnCreators.addEventListener('click', () => {
     showView(creatorsView, true);
+    if (navBack) navBack.classList.remove('hidden'); 
     loadCreators();
   });
 }

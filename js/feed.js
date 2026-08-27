@@ -33,6 +33,44 @@ export const playbackObserver = new IntersectionObserver(
   { threshold: [0, 0.6] }
 );
 
+const flagObserver = new IntersectionObserver((entries, observer) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const card = entry.target;
+      const { site, service, user, id } = card.dataset;
+      
+      observer.unobserve(card);
+
+      if (!site || !service || !user || !id || id.includes('-dm-')) return;
+
+      fetch(`${PROXY_URL}/${site}/api/v1/${service}/user/${user}/post/${id}/flag`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.flagged) {
+            const authorArea = card.querySelector('.post-author');
+            
+            const badge = document.createElement('div');
+            badge.style.cssText = `
+              display: inline-flex; align-items: center; gap: 6px; 
+              background: rgba(255, 60, 60, 0.15); color: #ff5555; 
+              padding: 4px 10px; border-radius: 8px; font-size: 0.85rem; 
+              font-weight: bold; border: 1px solid rgba(255, 60, 60, 0.3); 
+              margin-top: 6px; margin-bottom: 20px; width: fit-content;
+            `;
+            badge.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> Not Yet Imported`;
+            
+            if (authorArea) {
+              authorArea.insertAdjacentElement('afterend', badge);
+            } else {
+              card.appendChild(badge);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  });
+}, { rootMargin: "150px" });
+
 export const mediaObserver = new IntersectionObserver(
   (entries) => {
     entries.forEach((entry) => {
@@ -312,11 +350,22 @@ export async function loadMediaWithProgress(item) {
 
         try {
           const headRes = await fetch(url, { method: "HEAD" });
+          if (headRes.status === 204 || headRes.status === 404) {
+             throw new Error("404_NOT_FOUND");
+          }
           if (headRes.ok) {
             const cl = headRes.headers.get("content-length");
             if (cl) sizeStr = formatBytes(parseInt(cl, 10));
           }
-        } catch (_) {}
+        } catch (err) {
+        if (err.message === "404_NOT_FOUND") {
+          container.innerHTML = "";
+          if (progressOverlay) showMediaUnavailableWarning(progressOverlay, "zip");
+          if (progressOverlay) container.appendChild(progressOverlay);
+          return;
+        }
+        console.warn("unzipit failed, falling back", err);
+        }
 
         const { entries } = await window.unzipit.unzip(url);
 
@@ -526,10 +575,10 @@ export async function loadMediaWithProgress(item) {
     }
 
     const response = await fetch(url, { signal });
+    if (response.status === 204 || response.status === 404) {
+      throw new Error("404_NOT_FOUND");
+    }
     if (!response.ok) {
-      if (response.status === 404) {
-        throw new Error("404_NOT_FOUND");
-      }
       throw new Error("Network response was not ok");
     }
 
@@ -1014,6 +1063,9 @@ export function createPostCard(post) {
 
   const content = document.createElement("div");
   content.className = "post-content";
+  
+  content.style.paddingBottom = "80px";
+  
   if (cleanContent) {
     cleanContent = cleanContent.replace(/<a /gi, '<a target="_blank" rel="noopener noreferrer" ');
     content.innerHTML = cleanContent;
@@ -1026,9 +1078,7 @@ export function createPostCard(post) {
     inner.className = "post-text-inner";
     inner.appendChild(author);
     inner.appendChild(title);
-    if (cleanContent) {
-      inner.appendChild(content);
-    }
+    inner.appendChild(content);
     textCard.appendChild(inner);
     card.appendChild(textCard);
   } else {
@@ -1150,9 +1200,7 @@ export function createPostCard(post) {
     info.className = "post-info";
     info.appendChild(author);
     info.appendChild(title);
-    if (cleanContent) {
-      info.appendChild(content);
-    }
+    info.appendChild(content);
     card.appendChild(info);
   }
 
@@ -1343,6 +1391,13 @@ export async function fetchPosts() {
 
         const card = createPostCard(post);
         if (card) {
+          card.dataset.site = state.currentSite;
+          card.dataset.service = post.service;
+          card.dataset.user = post.user;
+          card.dataset.id = post.id;
+          
+          flagObserver.observe(card);
+
           feed.appendChild(card);
         }
       });

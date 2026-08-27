@@ -1,13 +1,63 @@
 import { state } from "./state.js";
-import { closeAllPostInfo, feedView } from "./nav.js";
-import { feed, navigateCarousel, recycleOffscreenCards } from "./feed.js";
-import { zipViewer, zipContent } from "./zip.js";
+import { closeAllPostInfo, feedView, creatorsView, welcomeScreen, showView, updateNavTabs } from "./nav.js";
+import { feed, navigateCarousel, recycleOffscreenCards, resetFeed } from "./feed.js";
+import { zipViewer, zipContent, setZipNavVisible } from "./zip.js";
 
 export function initGestures() {
   let feedScrollTimeout;
   let recycleTimeout;
+  
+  let activeCardIndex = 0;
+  let isResizing = false;
+  let resizeTimer = null;
+
+  window.addEventListener("resize", () => {
+    if (!feed || !feedView || !feedView.classList.contains("active")) return;
+    
+    isResizing = true;
+    feed.style.scrollSnapType = "none"; 
+    
+    // FIX 1: Instantly snap the vertical feed before the screen paints the new layout
+    const h = window.innerHeight;
+    feed.scrollTo({ top: activeCardIndex * h, behavior: "auto" });
+
+    const carousels = feed.querySelectorAll(".media-carousel");
+    carousels.forEach(c => {
+      c.style.scrollSnapType = "none";
+      if (!c.dataset.rawIndex) {
+        c.dataset.rawIndex = c.children.length > 1 ? "1" : "0";
+      }
+      // FIX 2: Instantly snap the horizontal images so they don't flash the old pixel positions
+      const w = c.clientWidth || window.innerWidth;
+      const targetIndex = parseInt(c.dataset.rawIndex, 10) || 0;
+      c.scrollTo({ left: targetIndex * w, behavior: "auto" });
+    });
+    
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      // Safety pass: Mobile browsers often change dimensions a second time as the URL bar hides/shows
+      const finalH = window.innerHeight;
+      feed.scrollTo({ top: activeCardIndex * finalH, behavior: "auto" });
+      
+      carousels.forEach(c => {
+        const finalW = c.clientWidth || window.innerWidth;
+        const targetIndex = parseInt(c.dataset.rawIndex, 10) || 0;
+        c.scrollTo({ left: targetIndex * finalW, behavior: "auto" });
+        c.style.scrollSnapType = "";
+      });
+      
+      feed.style.scrollSnapType = "";
+      isResizing = false;
+    }, 150); 
+  });
+
   if (feed) {
     feed.addEventListener("scroll", (e) => {
+      if (!isResizing) {
+        const h = window.innerHeight || 1;
+        activeCardIndex = Math.round(feed.scrollTop / h);
+      }
+
       closeAllPostInfo();
       const el = e.target;
       clearTimeout(feedScrollTimeout);
@@ -28,6 +78,10 @@ export function initGestures() {
       if (!e.target || !e.target.classList) return;
       if (e.target.classList.contains("media-carousel")) {
         closeAllPostInfo();
+        if (!isResizing) {
+          const w = e.target.clientWidth || window.innerWidth;
+          e.target.dataset.rawIndex = Math.round(e.target.scrollLeft / w);
+        }
       }
     },
     true
@@ -35,6 +89,46 @@ export function initGestures() {
 
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName.toLowerCase() === "input") return;
+
+    if (e.key === "Escape" || (e.key === "Shift" && !e.ctrlKey && !e.metaKey)) {
+      e.preventDefault();
+
+      if (zipViewer && !zipViewer.classList.contains("hidden")) {
+        setZipNavVisible(false, true);
+        zipViewer.classList.add("hidden");
+        if (zipContent) zipContent.innerHTML = "";
+        state.currentZipObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+        state.currentZipObjectUrls = [];
+        return;
+      }
+
+      if (feedView && feedView.classList.contains("active")) {
+        const navBackBtn = document.getElementById("nav-back");
+        const wasCreatorFeed = !!state.currentFeedCreatorName;
+        
+        state.currentFeedCreatorName = null;
+        updateNavTabs(null);
+        resetFeed();
+
+        if (wasCreatorFeed) {
+          showView(creatorsView, true);
+        } else {
+          showView(welcomeScreen, false);
+          if (navBackBtn) navBackBtn.classList.add("hidden");
+        }
+        return;
+      }
+
+      if (creatorsView && creatorsView.classList.contains("active")) {
+        state.currentFeedCreatorName = null;
+        updateNavTabs(null);
+        resetFeed();
+        showView(welcomeScreen, false);
+        const navBackBtn = document.getElementById("nav-back");
+        if (navBackBtn) navBackBtn.classList.add("hidden");
+        return;
+      }
+    }
 
     const h = window.innerHeight;
 
