@@ -26,7 +26,7 @@ import {
   loadCreators,
   filterAndSortCreators
 } from './js/creators.js';
-import { resetFeed, fetchPosts } from './js/feed.js';
+import { resetFeed, fetchPosts, navigateCarousel, handleCarouselScrollSettled } from './js/feed.js';
 import {
   zipViewer,
   zipContent,
@@ -322,31 +322,13 @@ if (zipViewer) {
     if (e.target.tagName.toLowerCase() === 'button' || e.target.id === 'zip-indicator' || e.target.closest('#zip-nav')) return;
     const x = e.clientX;
     const w = window.innerWidth;
-    
+    const count = state.currentZipObjectUrls.length;
+    if (!zipContent || count <= 1) return;
+
     if (x < w * 0.2) {
-      let target = zipContent.dataset.targetScroll !== undefined ? parseFloat(zipContent.dataset.targetScroll) : Math.round(zipContent.scrollLeft / w) * w;
-      target = target - w;
-      let isWrap = false;
-      if (target < 0) {
-        target = zipContent.scrollWidth - zipContent.clientWidth;
-        isWrap = true;
-      }
-      zipContent.dataset.targetScroll = target;
-      zipContent.dataset.scrollDir = 'left';
-      zipContent.style.scrollSnapType = 'none';
-      zipContent.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
+      navigateCarousel(zipContent, 'left', count);
     } else if (x > w * 0.8) {
-      let target = zipContent.dataset.targetScroll !== undefined ? parseFloat(zipContent.dataset.targetScroll) : Math.round(zipContent.scrollLeft / w) * w;
-      target = target + w;
-      let isWrap = false;
-      if (target > zipContent.scrollWidth - zipContent.clientWidth) {
-        target = 0;
-        isWrap = true;
-      }
-      zipContent.dataset.targetScroll = target;
-      zipContent.dataset.scrollDir = 'right';
-      zipContent.style.scrollSnapType = 'none';
-      zipContent.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
+      navigateCarousel(zipContent, 'right', count);
     } else {
       setZipNavVisible(!state.zipNavManualVisible, true);
     }
@@ -354,10 +336,28 @@ if (zipViewer) {
 }
 
 if (zipContent) {
+  let zipScrollSettleTimer;
   zipContent.addEventListener('scroll', () => {
-    if (state.currentZipObjectUrls.length <= 1) return;
-    const index = Math.round(zipContent.scrollLeft / zipContent.clientWidth) + 1;
-    if (zipIndicator) zipIndicator.textContent = `${index} / ${state.currentZipObjectUrls.length}`;
+    const count = state.currentZipObjectUrls.length;
+    if (count <= 1) return;
+    const itemWidth = zipContent.clientWidth || window.innerWidth;
+    if (!itemWidth) return;
+    const rawIndex = Math.round(zipContent.scrollLeft / itemWidth);
+    const realIndex = (rawIndex - 1 + count) % count;
+    if (zipIndicator) zipIndicator.textContent = `${realIndex + 1} / ${count}`;
+
+    if (!zipContent._animId) {
+      clearTimeout(zipScrollSettleTimer);
+      zipScrollSettleTimer = setTimeout(() => {
+        handleCarouselScrollSettled(zipContent, count);
+      }, 60);
+    }
+  });
+
+  zipContent.addEventListener('scrollend', () => {
+    if (!zipContent._animId) {
+      handleCarouselScrollSettled(zipContent, state.currentZipObjectUrls.length);
+    }
   });
 }
 

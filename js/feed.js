@@ -39,14 +39,66 @@ export const feedObserver = new IntersectionObserver((entries) => {
   }
 }, { root: feed, rootMargin: '0px', threshold: 0.1 });
 
+export function detachMedia(item) {
+  if (!item || !item.dataset.loaded) return;
+  
+  if (item._abortController) {
+    try { item._abortController.abort(); } catch (_) {}
+    item._abortController = null;
+  }
+
+  if (item._blobUrl) {
+    URL.revokeObjectURL(item._blobUrl);
+    item._blobUrl = null;
+  }
+
+  const mediaEls = item.querySelectorAll('video, audio, img.post-media');
+  mediaEls.forEach(el => {
+    if (el.tagName.toLowerCase() === 'video' || el.tagName.toLowerCase() === 'audio') {
+      playbackObserver.unobserve(el);
+      el.pause();
+      el.removeAttribute('src');
+      el.load();
+    } else if (el.tagName.toLowerCase() === 'img') {
+      el.src = '';
+    }
+    el.remove();
+  });
+
+  const progressOverlay = item.querySelector('.media-progress');
+  if (progressOverlay) {
+    progressOverlay.style.display = 'flex';
+    progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Waiting</span>`;
+  }
+
+  delete item.dataset.loaded;
+}
+
+let recycleTimer = null;
+export function recycleOffscreenCards() {
+  if (!feed) return;
+  const cards = feed.querySelectorAll('.post-card');
+  if (cards.length === 0) return;
+
+  const h = window.innerHeight || 1;
+  const currentCardIndex = Math.round(feed.scrollTop / h);
+  const KEEP_WINDOW = 5;
+
+  const minIndex = Math.max(0, currentCardIndex - KEEP_WINDOW);
+  const maxIndex = Math.min(cards.length - 1, currentCardIndex + KEEP_WINDOW);
+
+  cards.forEach((card, idx) => {
+    if (idx < minIndex || idx > maxIndex) {
+      const items = card.querySelectorAll('.media-item');
+      items.forEach(item => detachMedia(item));
+    }
+  });
+}
+
 export function resetFeed() {
   if (!feed) return;
-  const videos = feed.querySelectorAll('video');
-  videos.forEach(v => {
-    v.pause();
-    v.removeAttribute('src');
-    v.load();
-  });
+  const items = feed.querySelectorAll('.media-item');
+  items.forEach(item => detachMedia(item));
   feed.innerHTML = '';
   state.offset = 0;
   state.hasMore = true;
@@ -395,12 +447,19 @@ export async function loadMediaWithProgress(item) {
     return;
   }
 
+  if (item._abortController) {
+    try { item._abortController.abort(); } catch (_) {}
+  }
+  const abortController = new AbortController();
+  item._abortController = abortController;
+  const signal = abortController.signal;
+
   try {
     if (!url.startsWith(PROXY_URL)) {
       throw new Error('Direct CDN URL (Bypassing fetch to prevent CORS spam)');
     }
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal });
     if (!response.ok) {
       if (response.status === 404) {
         throw new Error('404_NOT_FOUND');
@@ -419,6 +478,7 @@ export async function loadMediaWithProgress(item) {
     if (total === 0) {
       if (progressOverlay) progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Unknown Size</span>`;
       const blob = await response.blob();
+      if (signal.aborted) return;
       attachMedia(item, blob, type);
       if (progressOverlay) progressOverlay.style.display = 'none';
       return;
@@ -431,8 +491,13 @@ export async function loadMediaWithProgress(item) {
     let speedStr = "0 B/s";
     
     while(true) {
+      if (signal.aborted) {
+        try { reader.cancel(); } catch (_) {}
+        return;
+      }
       const {done, value} = await reader.read();
       if (done) break;
+      if (signal.aborted) return;
       
       chunks.push(value);
       loaded += value.length;
@@ -452,10 +517,15 @@ export async function loadMediaWithProgress(item) {
       }
     }
     
+    if (signal.aborted) return;
     const blob = new Blob(chunks);
     attachMedia(item, blob, type);
     if (progressOverlay) progressOverlay.style.display = 'none';
   } catch (error) {
+    if (signal.aborted || error.name === 'AbortError') {
+      return;
+    }
+
     if (error.message === '404_NOT_FOUND') {
       const path = item.dataset.path;
       const showWarning = () => showMediaUnavailableWarning(progressOverlay, type);
@@ -481,7 +551,7 @@ export async function loadMediaWithProgress(item) {
         thumbImg.onload = () => { 
           if (progressOverlay) progressOverlay.style.display = 'none'; 
         };
-        thumbImg.onerror = () => {
+        thumbImg.onerror = () => { 
           showWarning(); 
         };
         
@@ -507,7 +577,14 @@ export async function loadMediaWithProgress(item) {
 }
 
 export function attachMedia(item, blob, type) {
+  if (!item || !item.parentElement) return;
+  if (item._blobUrl) {
+    URL.revokeObjectURL(item._blobUrl);
+    item._blobUrl = null;
+  }
   const objUrl = URL.createObjectURL(blob);
+  item._blobUrl = objUrl;
+
   if (type === 'video' || type === 'audio') {
     const video = document.createElement(type === 'video' ? 'video' : 'audio');
     video.className = 'post-media';
@@ -524,6 +601,134 @@ export function attachMedia(item, blob, type) {
     img.src = objUrl;
     item.appendChild(img);
   }
+}
+
+function smoothScroll(element, targetLeft, duration = 140, onComplete = null) {
+  if (window.pawAnimationsDisabled || duration <= 0) {
+    element.scrollLeft = targetLeft;
+    element.style.scrollSnapType = '';
+    if (onComplete) onComplete();
+    return;
+  }
+
+  if (element._animId) {
+    cancelAnimationFrame(element._animId);
+    element._animId = null;
+  }
+
+  element.style.scrollSnapType = 'none';
+  const startLeft = element.scrollLeft;
+  const distance = targetLeft - startLeft;
+  if (Math.abs(distance) < 1) {
+    element.scrollLeft = targetLeft;
+    element.style.scrollSnapType = '';
+    if (onComplete) onComplete();
+    return;
+  }
+
+  const startTime = performance.now();
+  const easeOut = (t) => t * (2 - t);
+
+  function step(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const easedProgress = easeOut(progress);
+
+    element.scrollLeft = startLeft + distance * easedProgress;
+
+    if (progress < 1) {
+      element._animId = requestAnimationFrame(step);
+    } else {
+      element._animId = null;
+      if (onComplete) {
+        onComplete();
+      } else {
+        element.scrollLeft = targetLeft;
+      }
+      requestAnimationFrame(() => {
+        element.style.scrollSnapType = '';
+      });
+    }
+  }
+
+  element._animId = requestAnimationFrame(step);
+}
+
+export function handleCarouselScrollSettled(container, count) {
+  if (!container || count <= 1 || container._animId) return;
+  const itemWidth = container.clientWidth || window.innerWidth;
+  if (!itemWidth) return;
+  const curIdx = Math.round(container.scrollLeft / itemWidth);
+  if (curIdx <= 0) {
+    container.style.scrollSnapType = 'none';
+    container.scrollLeft = count * itemWidth;
+    requestAnimationFrame(() => { container.style.scrollSnapType = ''; });
+  } else if (curIdx >= count + 1) {
+    container.style.scrollSnapType = 'none';
+    container.scrollLeft = 1 * itemWidth;
+    requestAnimationFrame(() => { container.style.scrollSnapType = ''; });
+  }
+}
+
+export function navigateCarousel(carousel, direction, totalCount, isKey = false) {
+  const count = carousel.dataset.mediaCount ? parseInt(carousel.dataset.mediaCount, 10) : (totalCount || (carousel.children.length > 2 ? carousel.children.length - 2 : carousel.children.length));
+  if (!carousel || count <= 1) return;
+  const itemWidth = carousel.clientWidth || window.innerWidth;
+  if (!itemWidth) return;
+
+  const now = performance.now();
+  if (!isKey && carousel._lastNavTime && (now - carousel._lastNavTime < 60)) {
+    return;
+  }
+  carousel._lastNavTime = now;
+
+  let baseIndex;
+  if (carousel._targetIndex !== undefined) {
+    baseIndex = carousel._targetIndex;
+    if (carousel._animId) {
+      cancelAnimationFrame(carousel._animId);
+      carousel._animId = null;
+    }
+    if (baseIndex <= 0) {
+      carousel.scrollLeft = count * itemWidth;
+      baseIndex = count;
+    } else if (baseIndex >= count + 1) {
+      carousel.scrollLeft = 1 * itemWidth;
+      baseIndex = 1;
+    }
+  } else {
+    baseIndex = Math.round(carousel.scrollLeft / itemWidth);
+    if (baseIndex <= 0) {
+      carousel.scrollLeft = count * itemWidth;
+      baseIndex = count;
+    } else if (baseIndex >= count + 1) {
+      carousel.scrollLeft = 1 * itemWidth;
+      baseIndex = 1;
+    }
+  }
+
+  let nextIndex;
+  if (direction === 'right') {
+    nextIndex = baseIndex + 1;
+  } else if (direction === 'left') {
+    nextIndex = baseIndex - 1;
+  } else {
+    return;
+  }
+
+  carousel._targetIndex = nextIndex;
+  const targetX = nextIndex * itemWidth;
+
+  smoothScroll(carousel, targetX, window.pawAnimationsDisabled ? 0 : 140, () => {
+    carousel._targetIndex = undefined;
+    if (nextIndex <= 0) {
+      carousel.scrollLeft = count * itemWidth;
+    } else if (nextIndex >= count + 1) {
+      carousel.scrollLeft = 1 * itemWidth;
+    } else {
+      carousel.scrollLeft = targetX;
+    }
+  });
 }
 
 export function createPostCard(post) {
@@ -726,34 +931,6 @@ export function createPostCard(post) {
       }
     }, {passive: false});
 
-    let touchStartX = 0;
-    carousel.addEventListener('touchstart', (e) => {
-      if (allMedia.length <= 1) return;
-      touchStartX = e.touches[0].clientX;
-    }, {passive: true});
-    
-    carousel.addEventListener('touchmove', (e) => {
-      if (allMedia.length <= 1) return;
-      const dx = touchStartX - e.touches[0].clientX;
-      if (dx < 0 && carousel.scrollLeft <= 1) {
-        e.preventDefault();
-      } else if (dx > 0 && carousel.scrollLeft >= carousel.scrollWidth - carousel.clientWidth - 2) {
-        e.preventDefault();
-      }
-    }, {passive: false});
-    
-    carousel.addEventListener('touchend', (e) => {
-      if (allMedia.length <= 1) return;
-      const dx = touchStartX - e.changedTouches[0].clientX;
-      if (Math.abs(dx) > 40) {
-        if (dx < 0 && carousel.scrollLeft <= 1) {
-          wrapCarousel(carousel, 'end');
-        } else if (dx > 0 && carousel.scrollLeft >= carousel.scrollWidth - carousel.clientWidth - 2) {
-          wrapCarousel(carousel, 'start');
-        }
-      }
-    });
-
     allMedia.forEach(mediaObj => {
       const mediaPath = mediaObj.path;
       const item = document.createElement('div');
@@ -776,7 +953,22 @@ export function createPostCard(post) {
       carousel.appendChild(item);
       mediaObserver.observe(item);
     });
-    
+
+    carousel.dataset.mediaCount = allMedia.length;
+
+    if (allMedia.length > 1 && carousel.children.length > 1) {
+      const firstChild = carousel.children[0];
+      const lastChild = carousel.children[carousel.children.length - 1];
+      const cloneFirst = firstChild.cloneNode(true);
+      const cloneLast = lastChild.cloneNode(true);
+
+      carousel.insertBefore(cloneLast, firstChild);
+      carousel.appendChild(cloneFirst);
+
+      mediaObserver.observe(cloneLast);
+      mediaObserver.observe(cloneFirst);
+    }
+
     const indicator = document.createElement('div');
     indicator.className = 'carousel-indicator';
     indicator.textContent = `1 / ${allMedia.length}`;
@@ -791,20 +983,46 @@ export function createPostCard(post) {
 
     indicator.addEventListener('click', (e) => {
       e.stopPropagation();
-      carousel.dataset.targetScroll = 0;
-      carousel.dataset.scrollDir = 'left';
-      carousel.style.scrollSnapType = 'none';
-      carousel.scrollTo({ left: 0, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
+      const itemWidth = carousel.clientWidth || window.innerWidth;
+      const target = allMedia.length > 1 ? 1 * itemWidth : 0;
+      smoothScroll(carousel, target, window.pawAnimationsDisabled ? 0 : 140);
     });
     
-    setTimeout(() => {
-      carousel.scrollLeft = 0;
-    }, 0);
+    requestAnimationFrame(() => {
+      const itemWidth = carousel.clientWidth || window.innerWidth;
+      if (allMedia.length > 1 && itemWidth) {
+        carousel.scrollLeft = 1 * itemWidth;
+      } else {
+        carousel.scrollLeft = 0;
+      }
+    });
     card.appendChild(indicator);
     
+    let scrollSettleTimer;
     carousel.addEventListener('scroll', () => {
-      const index = Math.round(carousel.scrollLeft / window.innerWidth);
-      indicator.textContent = `${index + 1} / ${allMedia.length}`;
+      const itemWidth = carousel.clientWidth || window.innerWidth;
+      if (!itemWidth) return;
+      const count = allMedia.length;
+      if (count > 1) {
+        const rawIndex = Math.round(carousel.scrollLeft / itemWidth);
+        const realIndex = (rawIndex - 1 + count) % count;
+        indicator.textContent = `${realIndex + 1} / ${count}`;
+
+        if (!carousel._animId) {
+          clearTimeout(scrollSettleTimer);
+          scrollSettleTimer = setTimeout(() => {
+            handleCarouselScrollSettled(carousel, count);
+          }, 60);
+        }
+      } else {
+        indicator.textContent = '1 / 1';
+      }
+    });
+
+    carousel.addEventListener('scrollend', () => {
+      if (!carousel._animId) {
+        handleCarouselScrollSettled(carousel, allMedia.length);
+      }
     });
 
     card.appendChild(carousel);
@@ -836,7 +1054,6 @@ export function createPostCard(post) {
       const h = window.innerHeight;
 
       if (y < h * 0.15) {
-        if (feed.dataset.scrollDir === 'down') return;
         let target = feed.dataset.targetScroll !== undefined ? parseFloat(feed.dataset.targetScroll) : Math.round(feed.scrollTop / h) * h;
         target = Math.max(0, target - h);
         feed.dataset.targetScroll = target;
@@ -846,7 +1063,6 @@ export function createPostCard(post) {
         return;
       }
       if (y > h * 0.85) {
-        if (feed.dataset.scrollDir === 'up') return;
         let target = feed.dataset.targetScroll !== undefined ? parseFloat(feed.dataset.targetScroll) : Math.round(feed.scrollTop / h) * h;
         target = Math.min(target + h, feed.scrollHeight - feed.clientHeight);
         feed.dataset.targetScroll = target;
@@ -858,33 +1074,11 @@ export function createPostCard(post) {
       const carousel = card.querySelector('.media-carousel');
       if (carousel && allMedia.length > 1) {
         if (x < w * 0.20) {
-          if (carousel.dataset.scrollDir === 'right') return;
-          let target = carousel.dataset.targetScroll !== undefined ? parseFloat(carousel.dataset.targetScroll) : Math.round(carousel.scrollLeft / w) * w;
-          target = target - w;
-          let isWrap = false;
-          if (target < 0) {
-             target = carousel.scrollWidth - carousel.clientWidth;
-             isWrap = true;
-          }
-          carousel.dataset.targetScroll = target;
-          carousel.dataset.scrollDir = 'left';
-          carousel.style.scrollSnapType = 'none';
-          carousel.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
+          navigateCarousel(carousel, 'left', allMedia.length);
           return;
         }
         if (x > w * 0.80) {
-          if (carousel.dataset.scrollDir === 'left') return;
-          let target = carousel.dataset.targetScroll !== undefined ? parseFloat(carousel.dataset.targetScroll) : Math.round(carousel.scrollLeft / w) * w;
-          target = target + w;
-          let isWrap = false;
-          if (target > carousel.scrollWidth - carousel.clientWidth) {
-             target = 0;
-             isWrap = true;
-          }
-          carousel.dataset.targetScroll = target;
-          carousel.dataset.scrollDir = 'right';
-          carousel.style.scrollSnapType = 'none';
-          carousel.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
+          navigateCarousel(carousel, 'right', allMedia.length);
           return;
         }
       }

@@ -1,10 +1,11 @@
 import { state } from './state.js';
 import { closeAllPostInfo, feedView } from './nav.js';
-import { feed } from './feed.js';
+import { feed, navigateCarousel, recycleOffscreenCards } from './feed.js';
 import { zipViewer, zipContent } from './zip.js';
 
 export function initGestures() {
   let feedScrollTimeout;
+  let recycleTimeout;
   if (feed) {
     feed.addEventListener('scroll', (e) => {
       closeAllPostInfo();
@@ -15,128 +16,34 @@ export function initGestures() {
         delete el.dataset.scrollDir;
         el.style.scrollSnapType = '';
       }, 150);
+
+      clearTimeout(recycleTimeout);
+      recycleTimeout = setTimeout(recycleOffscreenCards, 80);
     });
   }
 
   document.addEventListener('scroll', (e) => {
     if (!e.target || !e.target.classList) return;
-    
-    if (e.target.classList.contains('media-carousel') || e.target.id === 'zip-content' || e.target.id === 'feed') {
-      if (e.target.classList.contains('media-carousel')) {
-        closeAllPostInfo();
-      }
-      const container = e.target;
-      if (!window.containerScrollTimeouts) window.containerScrollTimeouts = new Map();
-      clearTimeout(window.containerScrollTimeouts.get(container));
-      window.containerScrollTimeouts.set(container, setTimeout(() => {
-        delete container.dataset.targetScroll;
-        delete container.dataset.scrollDir;
-        if (container.id === 'feed') {
-          container.style.scrollSnapType = '';
-        } else if (container.id === 'zip-content') {
-          container.style.scrollSnapType = 'x mandatory';
-        } else {
-          container.style.scrollSnapType = '';
-        }
-      }, 150));
+    if (e.target.classList.contains('media-carousel')) {
+      closeAllPostInfo();
     }
   }, true);
-
-  let isMouseSwiping = false;
-  let swipeStartX = 0;
-  let swipeStartY = 0;
-
-  document.addEventListener('mousedown', (e) => {
-    if (e.target.closest('.post-info.expanded')) return;
-    
-    const x = e.clientX;
-    const y = e.clientY;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    if (y < h * 0.15 || y > h * 0.85 || x < w * 0.20 || x > w * 0.80) {
-      return;
-    }
-    
-    swipeStartX = e.clientX;
-    swipeStartY = e.clientY;
-    isMouseSwiping = true;
-  });
-
-  document.addEventListener('mouseup', (e) => {
-    if (!isMouseSwiping) return;
-    isMouseSwiping = false;
-    
-    const dx = e.clientX - swipeStartX;
-    const dy = e.clientY - swipeStartY;
-    
-    if (Math.abs(dx) > 50 || Math.abs(dy) > 50) {
-      const card = e.target.closest('.post-card');
-      if (card) {
-        card.dataset.isDragging = 'true';
-        const carousel = card.querySelector('.media-carousel');
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        
-        if (Math.abs(dy) > Math.abs(dx)) {
-          if (dy > 50) feed.scrollBy({ top: -h, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
-          else feed.scrollBy({ top: h, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
-        } else if (carousel) {
-          let target = Math.round(carousel.scrollLeft / w) * w;
-          let isWrap = false;
-          if (dx > 50) {
-             target -= w;
-             if (target < 0) {
-               target = carousel.scrollWidth - carousel.clientWidth;
-               isWrap = true;
-             }
-          } else {
-             target += w;
-             if (target > carousel.scrollWidth - carousel.clientWidth) {
-               target = 0;
-               isWrap = true;
-             }
-          }
-          carousel.dataset.targetScroll = target;
-          carousel.style.scrollSnapType = 'none';
-          carousel.scrollTo({ left: target, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
-        }
-      }
-    }
-  });
 
   document.addEventListener('keydown', (e) => {
     if (e.target.tagName.toLowerCase() === 'input') return;
 
     const h = window.innerHeight;
-    const w = window.innerWidth;
 
     if (zipViewer && !zipViewer.classList.contains('hidden')) {
+      const count = state.currentZipObjectUrls.length;
+      if (!zipContent || count <= 1) return;
+
       if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') {
         e.preventDefault();
-        let target = zipContent.dataset.targetScroll !== undefined ? parseFloat(zipContent.dataset.targetScroll) : Math.round(zipContent.scrollLeft / w) * w;
-        target = target - w;
-        let isWrap = false;
-        if (target < 0) {
-          target = zipContent.scrollWidth - zipContent.clientWidth;
-          isWrap = true;
-        }
-        zipContent.dataset.targetScroll = target;
-        zipContent.dataset.scrollDir = 'left';
-        zipContent.style.scrollSnapType = 'none';
-        zipContent.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
+        navigateCarousel(zipContent, 'left', count, true);
       } else if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
         e.preventDefault();
-        let target = zipContent.dataset.targetScroll !== undefined ? parseFloat(zipContent.dataset.targetScroll) : Math.round(zipContent.scrollLeft / w) * w;
-        target = target + w;
-        let isWrap = false;
-        if (target > zipContent.scrollWidth - zipContent.clientWidth) {
-          target = 0;
-          isWrap = true;
-        }
-        zipContent.dataset.targetScroll = target;
-        zipContent.dataset.scrollDir = 'right';
-        zipContent.style.scrollSnapType = 'none';
-        zipContent.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
+        navigateCarousel(zipContent, 'right', count, true);
       }
       return;
     }
@@ -169,33 +76,7 @@ export function initGestures() {
       if (!carousel || carousel.children.length <= 1) return;
 
       e.preventDefault();
-
-      if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') {
-        let target = carousel.dataset.targetScroll !== undefined ? parseFloat(carousel.dataset.targetScroll) : Math.round(carousel.scrollLeft / w) * w;
-        target = target - w;
-        let isWrap = false;
-        if (target < 0) {
-           target = carousel.scrollWidth - carousel.clientWidth;
-           isWrap = true;
-        }
-        carousel.dataset.targetScroll = target;
-        carousel.dataset.scrollDir = 'left';
-        carousel.style.scrollSnapType = 'none';
-        carousel.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
-      } 
-      else if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
-        let target = carousel.dataset.targetScroll !== undefined ? parseFloat(carousel.dataset.targetScroll) : Math.round(carousel.scrollLeft / w) * w;
-        target = target + w;
-        let isWrap = false;
-        if (target > carousel.scrollWidth - carousel.clientWidth) {
-           target = 0;
-           isWrap = true;
-        }
-        carousel.dataset.targetScroll = target;
-        carousel.dataset.scrollDir = 'right';
-        carousel.style.scrollSnapType = 'none';
-        carousel.scrollTo({ left: target, behavior: (isWrap || window.pawAnimationsDisabled) ? 'auto' : 'smooth' });
-      }
+      navigateCarousel(carousel, e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a' ? 'left' : 'right', undefined, true);
     }
   });
 

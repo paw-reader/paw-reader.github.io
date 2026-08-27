@@ -5,7 +5,7 @@
 }
 
 body {
-  background-color: #121212;
+  background-color: #070707;
   color: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   overflow: hidden;
@@ -68,14 +68,12 @@ input, textarea, [contenteditable], .post-info.expanded {
   top: 0;
   left: 0;
   right: 0;
+  bottom: 0;
   z-index: 1000;
   pointer-events: none; /* Let clicks pass through empty space */
 }
 #nav.hidden, .hidden {
   display: none !important;
-}
-#nav-tabs::-webkit-scrollbar {
-  display: none;
 }
 #nav button {
   background: rgba(0, 0, 0, 0.6);
@@ -83,6 +81,17 @@ input, textarea, [contenteditable], .post-info.expanded {
   border: 1px solid rgba(255, 255, 255, 0.2);
   padding: 8px 16px;
   border-radius: 20px;
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  transition: background 0.2s;
+  pointer-events: auto;
+}
+#nav button:hover {
+  background: rgba(0, 0, 0, 0.8);
 }
 #nav #nav-back, #nav #nav-info, #nav #nav-settings, #nav #nav-home {
   width: 36px;
@@ -96,43 +105,77 @@ input, textarea, [contenteditable], .post-info.expanded {
   z-index: 1000;
 }
 
-#nav #nav-back, #nav #nav-info { position: static; }
+#nav #nav-back { top: 20px; left: 20px; }
+#nav #nav-info { top: 20px; left: 65px; }
 #nav #nav-settings { top: 20px; right: 65px; }
 #nav #nav-home { top: 20px; right: 20px; }
 
 #nav-tabs {
   position: fixed;
   top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* Stay clear of left buttons (back ~20px + width 36px + gap + info 36px + gap ≈ 115px)
+     and right buttons (home + settings + margins ≈ 115px) */
+  left: 120px;
+  right: 120px;
   z-index: 1000;
   display: flex;
   gap: 10px;
-  max-width: calc(100vw - 230px);
+  justify-content: center;
   overflow-x: auto;
+  pointer-events: auto;
+}
+#nav-tabs::-webkit-scrollbar {
+  display: none;
 }
 
-@media (max-width: 600px), (max-height: 500px) {
-  #nav-left { flex-direction: column; }
-  #nav #nav-info { top: 65px; left: 20px; }
-  #nav #nav-settings { top: 65px; right: 20px; }
+@media (max-width: 768px), (max-height: 500px) {
+  /* Top center tabs go edge-to-edge from left to right */
   #nav-tabs { 
-    left: 70px; 
-    right: 70px; 
+    top: 15px;
+    left: 12px; 
+    right: 12px; 
     transform: none; 
     max-width: none; 
     width: auto; 
     justify-content: flex-start;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
-}
-#nav button {
-  backdrop-filter: blur(10px);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-  transition: background 0.2s;
+
+  /* Home button on the bottom right */
+  #nav #nav-home {
+    top: auto;
+    bottom: 20px;
+    right: 20px;
+    left: auto;
+  }
+
+  /* Back button on top of the home button */
+  #nav #nav-back {
+    top: auto;
+    bottom: 65px;
+    right: 20px;
+    left: auto;
+  }
+
+  /* Setting button on the bottom left */
+  #nav #nav-settings {
+    top: auto;
+    bottom: 20px;
+    left: 20px;
+    right: auto;
+  }
+
+  /* Info button on top of the settings button */
+  #nav #nav-info {
+    top: auto;
+    bottom: 65px;
+    left: 20px;
+    right: auto;
+  }
 }
 #nav button:hover {
   background: rgba(0, 0, 0, 0.8);
@@ -145,7 +188,7 @@ input, textarea, [contenteditable], .post-info.expanded {
   align-items: center;
   justify-content: center;
   text-align: center;
-  background: linear-gradient(135deg, #1e1e1e, #000000);
+  background: #070707;
 }
 #welcome-screen.active {
   display: flex;
@@ -169,19 +212,19 @@ input, textarea, [contenteditable], .post-info.expanded {
 .welcome-buttons button {
   padding: 15px 30px;
   font-size: 1.2rem;
-  border: none;
+  border: 1px solid #333;
   border-radius: 30px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #333;
+  background: #121212;
   color: #fff;
   transition: transform 0.2s, background 0.2s;
 }
 .welcome-buttons button:hover {
   transform: scale(1.05);
-  background: #444;
+  background: #1f1f1f;
 }
 
 /* Creators View */
@@ -205,8 +248,8 @@ input, textarea, [contenteditable], .post-info.expanded {
 .creators-controls select {
   padding: 12px;
   border-radius: 5px;
-  border: 1px solid #444;
-  background: #333;
+  border: 1px solid #333;
+  background: #121212;
   color: white;
   font-size: 1rem;
   max-width: 100%;
@@ -215,8 +258,8 @@ input, textarea, [contenteditable], .post-info.expanded {
 .creators-controls button {
   padding: 12px 16px;
   border-radius: 5px;
-  border: 1px solid #444;
-  background: #333;
+  border: 1px solid #333;
+  background: #121212;
   color: white;
   font-size: 1.1rem;
   cursor: pointer;
@@ -230,7 +273,7 @@ input, textarea, [contenteditable], .post-info.expanded {
   transition: background 0.2s, border-color 0.2s;
 }
 .creators-controls button:hover {
-  background: #444;
+  background: #1f1f1f;
   border-color: #007bff;
 }
 .creators-controls input:focus,
@@ -242,10 +285,10 @@ input, textarea, [contenteditable], .post-info.expanded {
   display: flex;
   flex-wrap: wrap;
   gap: 15px;
-  background: #333;
+  background: #121212;
   padding: 12px;
   border-radius: 5px;
-  border: 1px solid #444;
+  border: 1px solid #333;
   flex: 1 1 100%;
   justify-content: center;
   align-items: center;
@@ -330,9 +373,9 @@ input, textarea, [contenteditable], .post-info.expanded {
   padding-bottom: 40px;
 }
 .page-btn {
-  background: #333;
+  background: #121212;
   color: white;
-  border: 1px solid #444;
+  border: 1px solid #333;
   padding: 5px 10px;
   border-radius: 5px;
   cursor: pointer;
@@ -342,7 +385,7 @@ input, textarea, [contenteditable], .post-info.expanded {
   transition: background 0.2s;
 }
 .page-btn:hover {
-  background: #555;
+  background: #1f1f1f;
 }
 .page-btn.active {
   background: #007bff;
@@ -500,35 +543,50 @@ video.post-media, audio.post-media {
   left: 0;
   right: 0;
   padding: 40px 20px 20px;
-  pointer-events: none;
+  pointer-events: none !important;
+  visibility: hidden;
   background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.8) 100%);
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease;
   transform: translateY(20px);
-  max-height: 60vh;
+  max-height: 70vh;
   opacity: 0;
   display: flex;
   flex-direction: column;
 }
+.post-info * {
+  pointer-events: none !important;
+}
 .post-info.expanded {
   opacity: 1;
+  visibility: visible;
   transform: translateY(0);
   overflow-y: auto;
-  pointer-events: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  pointer-events: auto !important;
+  max-height: 85vh;
   cursor: default; /* inside info isn't for toggling anymore */
+}
+.post-info.expanded * {
+  pointer-events: auto !important;
 }
 .post-author {
   font-weight: bold;
   font-size: 1.2rem;
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
 }
 .post-author-link, .post-title-link {
   color: inherit;
   text-decoration: none;
-  pointer-events: auto;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  text-align: left;
   transition: opacity 0.15s ease;
 }
 .post-author-link:hover, .post-title-link:hover {
@@ -539,13 +597,16 @@ video.post-media, audio.post-media {
   font-size: 1rem;
   margin-bottom: 8px;
   word-wrap: break-word;
+  text-align: left;
 }
 .post-content {
   display: block;
-  padding-bottom: 20px;
+  padding-bottom: 80px;
   color: #ddd;
   font-size: 1rem;
   line-height: 1.4;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .loading {
   position: absolute;
@@ -585,8 +646,8 @@ video.post-media, audio.post-media {
   top: 50%;
   right: 0;
   transform: translateY(-50%) translateX(100%);
-  background: #222;
-  border: 1px solid #444;
+  background: #121212;
+  border: 1px solid #333;
   border-right: none;
   border-radius: 10px 0 0 10px;
   padding: 20px;
@@ -607,7 +668,7 @@ video.post-media, audio.post-media {
   margin-top: 0;
   margin-bottom: 15px;
   text-align: center;
-  border-bottom: 1px solid #444;
+  border-bottom: 1px solid #333;
   padding-bottom: 10px;
 }
 #settings-content {
@@ -646,25 +707,61 @@ video.post-media, audio.post-media {
 
 
 #nav.auto-hide {
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-150%);
   pointer-events: none !important;
+}
+
+#nav.auto-hide #nav-tabs,
+#nav.auto-hide #nav-back,
+#nav.auto-hide #nav-info,
+#nav.auto-hide #nav-settings,
+#nav.auto-hide #nav-home {
   transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out, visibility 0.3s;
 }
-#nav.auto-hide * {
+
+#nav.auto-hide:not(.visible) #nav-tabs {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-120%);
+  pointer-events: none !important;
+}
+
+#nav.auto-hide:not(.visible) #nav-back,
+#nav.auto-hide:not(.visible) #nav-info,
+#nav.auto-hide:not(.visible) #nav-settings,
+#nav.auto-hide:not(.visible) #nav-home {
+  opacity: 0;
   visibility: hidden;
   pointer-events: none !important;
 }
-#nav.auto-hide.visible {
+
+@media (min-width: 769px) {
+  #nav.auto-hide:not(.visible) #nav-back,
+  #nav.auto-hide:not(.visible) #nav-info,
+  #nav.auto-hide:not(.visible) #nav-settings,
+  #nav.auto-hide:not(.visible) #nav-home {
+    transform: translateY(-120%);
+  }
+}
+
+@media (max-width: 768px), (max-height: 500px) {
+  #nav.auto-hide:not(.visible) #nav-back,
+  #nav.auto-hide:not(.visible) #nav-info,
+  #nav.auto-hide:not(.visible) #nav-settings,
+  #nav.auto-hide:not(.visible) #nav-home {
+    transform: translateY(120%);
+  }
+}
+
+#nav.auto-hide.visible #nav-tabs,
+#nav.auto-hide.visible #nav-back,
+#nav.auto-hide.visible #nav-info,
+#nav.auto-hide.visible #nav-settings,
+#nav.auto-hide.visible #nav-home {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
-  pointer-events: none !important;
 }
-#nav.auto-hide.visible * {
-  visibility: visible;
-}
+
 #nav.auto-hide.visible button,
 #nav.auto-hide.visible a,
 #nav.auto-hide.visible select,
@@ -707,9 +804,9 @@ video.post-media, audio.post-media {
 body.nav-visible .carousel-indicator {
   top: 70px;
 }
-@media (max-width: 600px), (max-height: 500px) {
+@media (max-width: 768px), (max-height: 500px) {
   body.nav-visible .carousel-indicator {
-    top: 110px;
+    top: 60px;
   }
 }
 
@@ -736,8 +833,8 @@ kbd {
   font-size: 0.85rem;
   line-height: 1;
   color: #fff;
-  background-color: #333;
-  border: 1px solid #555;
+  background-color: #121212;
+  border: 1px solid #333;
   border-radius: 4px;
   box-shadow: 0 2px 0 rgba(0,0,0,0.5);
   margin: 0 2px;

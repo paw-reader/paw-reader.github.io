@@ -45,6 +45,10 @@ export function updateZipNavVisibility(e) {
 }
 
 export async function openZipGallery(zipUrl, filename, cachedBlob = null) {
+  if (state.currentZipObjectUrls && state.currentZipObjectUrls.length > 0) {
+    state.currentZipObjectUrls.forEach(url => URL.revokeObjectURL(url));
+    state.currentZipObjectUrls = [];
+  }
   setZipNavVisible(false, true);
   if (zipViewer) zipViewer.classList.remove('hidden');
   if (zipTitle) zipTitle.textContent = filename;
@@ -135,6 +139,21 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null) {
       
       imgContainer.appendChild(img);
       if (zipContent) zipContent.appendChild(imgContainer);
+    }
+
+    if (zipContent) zipContent.dataset.mediaCount = imageFiles.length;
+
+    if (imageFiles.length > 1 && zipContent && zipContent.children.length > 1) {
+      const firstChild = zipContent.children[0];
+      const lastChild = zipContent.children[zipContent.children.length - 1];
+      const cloneFirst = firstChild.cloneNode(true);
+      const cloneLast = lastChild.cloneNode(true);
+      zipContent.insertBefore(cloneLast, firstChild);
+      zipContent.appendChild(cloneFirst);
+      requestAnimationFrame(() => {
+        const itemWidth = zipContent.clientWidth || window.innerWidth;
+        zipContent.scrollLeft = itemWidth;
+      });
     }
     
   } catch (err) {
