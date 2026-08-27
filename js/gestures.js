@@ -98,11 +98,10 @@ export function initGestures() {
     }
   });
 
-  // --- Scroll Momentum Hijacker for Disabled Animations ---
   let wheelAccumX = 0;
   let wheelAccumY = 0;
   let wheelAccumTimer = null;
-  const SCROLL_THRESHOLD = 80;
+  const SCROLL_THRESHOLD = 50;
 
   document.addEventListener(
     "wheel",
@@ -112,16 +111,26 @@ export function initGestures() {
         e.target.closest("#zip-settings-viewer") ||
         e.target.closest("#settings-menu") ||
         e.target.closest(".media-progress") ||
-        e.target.closest(".creator-list") ||
-        e.target.closest(".zip-info-text") ||
-        e.target.closest(".post-text-card")
+        e.target.closest("#creators-view") ||
+        e.target.closest(".zip-info-text")
       )
         return;
 
+      const textCard = e.target.closest(".post-text-card");
+      if (textCard) {
+        const atTop = textCard.scrollTop <= 0 && e.deltaY < 0;
+        const atBottom = textCard.scrollHeight - textCard.scrollTop <= textCard.clientHeight + 1 && e.deltaY > 0;
+        if (!atTop && !atBottom) return;
+      }
+
       e.preventDefault();
 
-      wheelAccumX += e.deltaX;
-      wheelAccumY += e.deltaY;
+      let multiplier = 1;
+      if (e.deltaMode === 1) multiplier = 50; 
+      else if (e.deltaMode === 2) multiplier = 800; 
+
+      wheelAccumX += e.deltaX * multiplier;
+      wheelAccumY += e.deltaY * multiplier;
 
       clearTimeout(wheelAccumTimer);
       wheelAccumTimer = setTimeout(() => {
@@ -141,19 +150,24 @@ export function initGestures() {
       if (zipC && zipViewer && !zipViewer.classList.contains("hidden")) {
         wheelAccumX -= stepsX * SCROLL_THRESHOLD;
         wheelAccumY -= stepsY * SCROLL_THRESHOLD;
+        
         let steps = Math.abs(stepsX) >= Math.abs(stepsY) ? stepsX : stepsY;
+        
+        let clampedStep = Math.sign(steps); 
 
         const w = window.innerWidth;
         let target = Math.round(zipC.scrollLeft / w) * w;
-        target += steps * w;
+        target += clampedStep * w;
         target = Math.max(0, Math.min(target, zipC.scrollWidth - zipC.clientWidth));
         zipC.scrollTo({ left: target, behavior: "auto" });
       } else if (carousel && Math.abs(wheelAccumX) > Math.abs(wheelAccumY)) {
         wheelAccumX -= stepsX * SCROLL_THRESHOLD;
 
+        let clampedStep = Math.sign(stepsX); 
+
         const w = window.innerWidth;
         let target = Math.round(carousel.scrollLeft / w) * w;
-        target += stepsX * w;
+        target += clampedStep * w;
         target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
         carousel.scrollTo({ left: target, behavior: "auto" });
         wheelAccumY = 0;
@@ -195,11 +209,18 @@ export function initGestures() {
         e.target.closest("#zip-settings-viewer") ||
         e.target.closest("#settings-menu") ||
         e.target.closest(".media-progress") ||
-        e.target.closest(".creator-list") ||
-        e.target.closest(".zip-info-text") ||
-        e.target.closest(".post-text-card")
+        e.target.closest("#creators-view") ||
+        e.target.closest(".zip-info-text")
       )
         return;
+
+      const textCard = e.target.closest(".post-text-card");
+      if (textCard) {
+        const dy = globalTouchStartY - e.touches[0].clientY;
+        const atTop = textCard.scrollTop <= 0 && dy < 0;
+        const atBottom = textCard.scrollHeight - textCard.scrollTop <= textCard.clientHeight + 1 && dy > 0;
+        if (!atTop && !atBottom) return;
+      }
 
       if (e.cancelable) e.preventDefault();
     },
@@ -212,11 +233,19 @@ export function initGestures() {
       e.target.closest("#zip-settings-viewer") ||
       e.target.closest("#settings-menu") ||
       e.target.closest(".media-progress") ||
-      e.target.closest(".creator-list") ||
-      e.target.closest(".zip-info-text") ||
-      e.target.closest(".post-text-card")
+      e.target.closest("#creators-view") ||
+      e.target.closest(".zip-info-text")
     )
       return;
+
+    const textCard = e.target.closest(".post-text-card");
+    if (textCard) {
+      const dy = globalTouchStartY - e.changedTouches[0].clientY;
+      const atTop = textCard.scrollTop <= 0 && dy < 0;
+      const atBottom = textCard.scrollHeight - textCard.scrollTop <= textCard.clientHeight + 1 && dy > 0;
+      if (!atTop && !atBottom) return;
+    }
+
     if (touchHijackHandled) return;
 
     const dx = globalTouchStartX - e.changedTouches[0].clientX;

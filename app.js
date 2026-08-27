@@ -37,7 +37,8 @@ import {
   isZipNavInteractive,
   setZipNavVisible,
   updateZipNavVisibility,
-  openZipGallery
+  openZipGallery,
+  preloadUpcomingZipMedia
 } from './js/zip.js';
 import { initGestures } from './js/gestures.js';
 
@@ -347,17 +348,13 @@ if (zipContent) {
     const realIndex = (rawIndex - 1 + count) % count;
     if (zipIndicator) zipIndicator.textContent = `${realIndex + 1} / ${count}`;
 
+    preloadUpcomingZipMedia();
+
     if (!zipContent._animId) {
       clearTimeout(zipScrollSettleTimer);
       zipScrollSettleTimer = setTimeout(() => {
         handleCarouselScrollSettled(zipContent, count);
       }, 60);
-    }
-  });
-
-  zipContent.addEventListener('scrollend', () => {
-    if (!zipContent._animId) {
-      handleCarouselScrollSettled(zipContent, state.currentZipObjectUrls.length);
     }
   });
 }

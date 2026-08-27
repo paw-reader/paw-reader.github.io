@@ -33,7 +33,7 @@ export function setZipNavVisible(visible, manual = false) {
     }
     if (zipIndicator) {
       if (isDesktop) {
-        zipIndicator.style.transform = "translateY(0px)";
+        zipIndicator.style.transform = "translateY(50px)"; 
       } else {
         zipIndicator.style.transform = "";
       }
@@ -42,7 +42,7 @@ export function setZipNavVisible(visible, manual = false) {
     if (zipNav) zipNav.classList.remove("visible");
     if (zipIndicator) {
       if (isDesktop) {
-        zipIndicator.style.transform = "translateY(0)";
+        zipIndicator.style.transform = "translateY(0px)"; 
       } else {
         zipIndicator.style.transform = "";
       }
@@ -134,6 +134,33 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null) {
 
     if (zipIndicator) zipIndicator.textContent = `1 / ${imageFiles.length}`;
 
+    if (window.zipMediaObserver) window.zipMediaObserver.disconnect();
+    
+    const pCount = Math.max(1, window.pawPreloadCount || 1); 
+    window.zipMediaObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const img = entry.target.querySelector("img");
+          if (img && img.dataset.src) {
+            const targetUrl = img.dataset.src;
+            
+            const clones = zipContent.querySelectorAll("img[data-src]");
+            clones.forEach(clone => {
+              if (clone.dataset.src === targetUrl) {
+                clone.src = targetUrl;
+                clone.removeAttribute("data-src");
+                
+                if (clone.decode) clone.decode().catch(()=>{});
+              }
+            });
+          }
+        }
+      });
+    }, { 
+      root: zipContent, 
+      rootMargin: `0px ${pCount * 100}%` 
+    });
+
     for (const file of imageFiles) {
       const fileBlob = await file.async("blob");
       const objUrl = URL.createObjectURL(fileBlob);
@@ -149,14 +176,17 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null) {
       imgContainer.style.position = "relative";
 
       const img = document.createElement("img");
-      img.src = objUrl;
       img.style.maxWidth = "100%";
       img.style.maxHeight = "100%";
       img.style.objectFit = "contain";
-      img.loading = "lazy";
+      img.decoding = "async"; 
+      
+      img.dataset.src = objUrl;
 
       imgContainer.appendChild(img);
       if (zipContent) zipContent.appendChild(imgContainer);
+      
+      window.zipMediaObserver.observe(imgContainer);
     }
 
     if (zipContent) zipContent.dataset.mediaCount = imageFiles.length;
@@ -166,12 +196,22 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null) {
       const lastChild = zipContent.children[zipContent.children.length - 1];
       const cloneFirst = firstChild.cloneNode(true);
       const cloneLast = lastChild.cloneNode(true);
+      
       zipContent.insertBefore(cloneLast, firstChild);
       zipContent.appendChild(cloneFirst);
-      requestAnimationFrame(() => {
-        const itemWidth = zipContent.clientWidth || window.innerWidth;
-        zipContent.scrollLeft = itemWidth;
-      });
+      
+      window.zipMediaObserver.observe(cloneFirst);
+      window.zipMediaObserver.observe(cloneLast);
+
+      void zipContent.offsetHeight;
+
+      const itemWidth = zipContent.clientWidth || window.innerWidth;
+      zipContent.style.scrollSnapType = "none";
+      zipContent.scrollLeft = itemWidth;
+      
+      setTimeout(() => {
+        zipContent.style.scrollSnapType = "";
+      }, 50);
     }
   } catch (err) {
     console.error(err);
@@ -183,3 +223,5 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null) {
     }
   }
 }
+
+export function preloadUpcomingZipMedia() {}

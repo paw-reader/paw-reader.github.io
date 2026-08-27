@@ -38,14 +38,48 @@ export const mediaObserver = new IntersectionObserver(
     entries.forEach((entry) => {
       if (entry.isIntersecting) {
         const item = entry.target;
-        if (item.dataset.loaded) return;
-        item.dataset.loaded = "true";
-        loadMediaWithProgress(item);
+        
+        if (!item.dataset.loaded) {
+          item.dataset.loaded = "true";
+          loadMediaWithProgress(item);
+        }
+        
+        const carousel = item.closest(".media-carousel");
+        if (carousel) {
+          preloadUpcomingMedia(carousel);
+        }
       }
     });
   },
   { rootMargin: "100px" }
 );
+
+export function preloadUpcomingMedia(carousel) {
+  const preloadCount = window.pawPreloadCount || 0;
+  if (preloadCount <= 0) return;
+  
+  const count = parseInt(carousel.dataset.mediaCount || "0", 10);
+  if (count <= 1) return;
+  
+  const itemWidth = carousel.clientWidth || window.innerWidth;
+  if (!itemWidth) return;
+
+  const rawIndex = Math.round(carousel.scrollLeft / itemWidth);
+  
+  for (let i = 1; i <= preloadCount; i++) {
+    let targetIndex = rawIndex + i;
+    
+    if (targetIndex >= carousel.children.length) {
+      targetIndex = 1 + ((targetIndex - carousel.children.length) % count);
+    }
+    
+    const item = carousel.children[targetIndex];
+    if (item && !item.dataset.loaded) {
+      item.dataset.loaded = "true";
+      loadMediaWithProgress(item);
+    }
+  }
+}
 
 export const feedObserver = new IntersectionObserver(
   (entries) => {
@@ -986,7 +1020,6 @@ export function createPostCard(post) {
   }
 
   if (allMedia.length === 0) {
-    // Text-only post: Render directly in card without post-info overlay
     const textCard = document.createElement("div");
     textCard.className = "post-text-card";
     const inner = document.createElement("div");
