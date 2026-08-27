@@ -41,7 +41,6 @@ import {
 } from './js/zip.js';
 import { initGestures } from './js/gestures.js';
 
-// --- Global Settings Init ---
 window.pawAnimationsDisabled = localStorage.getItem('paw_animations_disabled') === 'true';
 window.pawAutoDownloadZip = localStorage.getItem('paw_auto_download_zip') === 'true';
 window.pawHideCovers = localStorage.getItem('paw_hide_covers') === 'true';
@@ -95,7 +94,6 @@ if (settingHideCovers) {
   });
 }
 
-// --- Navigation & Header Listeners ---
 document.addEventListener('mousemove', (e) => {
   window.lastMouseY = e.clientY;
   updateNavVisibility();
@@ -152,6 +150,8 @@ if (navHome) {
     showView(welcomeScreen, false);
     if (navBack) navBack.classList.add('hidden');
     
+    resetFeed();
+    
     state.creatorPage = 1;
     if (searchInput) searchInput.value = '';
     if (sortSelect) sortSelect.value = 'followers-desc';
@@ -170,10 +170,11 @@ if (navBack) {
     updateNavTabs(null);
     showView(creatorsView, true);
     navBack.classList.add('hidden');
+    
+    resetFeed();
   });
 }
 
-// --- Welcome Screen Buttons ---
 const btnLatest = document.getElementById('btn-latest');
 if (btnLatest) {
   btnLatest.addEventListener('click', async () => {
@@ -196,7 +197,6 @@ if (btnCreators) {
   });
 }
 
-// --- Creators Filter & Search Listeners ---
 let searchTimeout;
 if (searchInput) {
   searchInput.addEventListener('input', () => {
@@ -221,7 +221,7 @@ if (searchInput) {
             }
           }
         } catch (e) {
-          console.warn("Failed to fetch server-side search for cum.st", e);
+          console.warn(e);
         }
       }
       
@@ -269,7 +269,6 @@ if (genderFilterSelect) {
   });
 }
 
-// --- ZIP Viewer Modal Listeners ---
 if (closeZipViewer) {
   closeZipViewer.addEventListener('click', () => {
     if (!isZipNavInteractive()) return;
@@ -301,6 +300,8 @@ if (zipHomeViewer) {
     updateNavTabs(null);
     showView(welcomeScreen, false);
     if (navBack) navBack.classList.add('hidden');
+    
+    resetFeed();
   });
 }
 
@@ -361,5 +362,4 @@ if (zipContent) {
   });
 }
 
-// --- Initialize Gestures & Shortcuts ---
 initGestures();

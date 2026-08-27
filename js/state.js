@@ -1,9 +1,9 @@
-export const PROXY_URL = 'https://paw-worker.syrupderg.workers.dev';
+export const PROXY_URL = "https://paw-worker.syrupderg.workers.dev";
 
 export const state = {
-  currentSite: 'pawchive',
+  currentSite: "pawchive",
   allCreators: [],
-  loadedCreatorsSite: '',
+  loadedCreatorsSite: "",
   filteredCreators: [],
   creatorPage: 1,
   creatorsPerPage: 50,
@@ -16,6 +16,6 @@ export const state = {
   navManualVisible: false,
   zipNavManualVisible: false,
   currentZipObjectUrls: [],
-  cumSelectedTypes: ['photos', 'videos', 'audio', 'text'],
-  creatorSortDir: 'desc'
+  cumSelectedTypes: ["photos", "videos", "audio", "text"],
+  creatorSortDir: "desc",
 };
