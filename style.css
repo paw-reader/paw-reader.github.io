@@ -754,12 +754,10 @@ body.nav-visible .carousel-indicator {
 }
 
 #settings-menu.active {
-  transform: translateY(-50%) translateX(0);
-  visibility: visible;
+  transform: translateY(-50%) translateX(0) !important;
+  visibility: visible !important;
   pointer-events: auto;
-  transition:
-    transform 0.3s ease-in-out,
-    visibility 0s;
+  transition: transform 0.3s ease-in-out, visibility 0s;
 }
 
 #settings-menu h3 {
