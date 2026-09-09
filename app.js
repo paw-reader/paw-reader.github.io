@@ -40,6 +40,7 @@ import {
   openZipGallery,
   preloadUpcomingZipMedia
 } from './js/zip.js';
+import { abortExternalGallery } from './js/externalGalleries.js';
 import { initGestures } from './js/gestures.js';
 
 window.pawAnimationsDisabled = localStorage.getItem('paw_animations_disabled') === 'true';
@@ -140,6 +141,16 @@ if (siteSelector) {
     state.currentSite = e.target.value; 
     updateSiteSpecificUI();
   });
+}
+
+const navTabsEl = document.getElementById('nav-tabs');
+if (navTabsEl) {
+  navTabsEl.addEventListener('wheel', (e) => {
+    if (e.deltaY !== 0 && e.deltaX === 0) {
+      navTabsEl.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+  }, { passive: false });
 }
 
 if (navHome) {
@@ -287,6 +298,7 @@ if (genderFilterSelect) {
 if (closeZipViewer) {
   closeZipViewer.addEventListener('click', () => {
     if (!isZipNavInteractive()) return;
+    abortExternalGallery();
     setZipNavVisible(false, true);
     if (zipViewer) zipViewer.classList.add('hidden');
     if (zipContent) zipContent.innerHTML = '';
@@ -306,6 +318,7 @@ if (zipSettingsViewer && settingsMenu) {
 if (zipHomeViewer) {
   zipHomeViewer.addEventListener('click', () => {
     if (!isZipNavInteractive()) return;
+    abortExternalGallery();
     setZipNavVisible(false, true);
     if (zipViewer) zipViewer.classList.add('hidden');
     if (zipContent) zipContent.innerHTML = '';
@@ -323,11 +336,15 @@ if (zipHomeViewer) {
 if (zipIndicator && zipContent) {
   zipIndicator.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (state.currentZipObjectUrls.length === 0) return;
-    zipContent.dataset.targetScroll = 0;
-    zipContent.dataset.scrollDir = 'left';
+    const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
+    if (count <= 0) return;
+    const itemWidth = zipContent.clientWidth || window.innerWidth;
+    const target = count > 1 ? 1 * itemWidth : 0;
     zipContent.style.scrollSnapType = 'none';
-    zipContent.scrollTo({ left: 0, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
+    zipContent.scrollTo({ left: target, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
+    setTimeout(() => {
+      zipContent.style.scrollSnapType = '';
+    }, 150);
   });
 }
 
@@ -338,7 +355,7 @@ if (zipViewer) {
     if (e.target.tagName.toLowerCase() === 'button' || e.target.id === 'zip-indicator' || e.target.closest('#zip-nav')) return;
     const x = e.clientX;
     const w = window.innerWidth;
-    const count = state.currentZipObjectUrls.length;
+    const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
     if (!zipContent || count <= 1) return;
 
     if (x < w * 0.2) {
@@ -354,7 +371,7 @@ if (zipViewer) {
 if (zipContent) {
   let zipScrollSettleTimer;
   zipContent.addEventListener('scroll', () => {
-    const count = state.currentZipObjectUrls.length;
+    const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
     if (count <= 1) return;
     const itemWidth = zipContent.clientWidth || window.innerWidth;
     if (!itemWidth) return;

@@ -108,6 +108,8 @@ export function getMediaUrl(path) {
     return `https://img.kemono.cr/thumbnail/data${path}`;
   } else if (state.currentSite === "cum") {
     return `https://e1.cum.st${path}`;
+  } else if (state.currentSite === "pawchive") {
+    return `https://file.pawchive.pw/data${path}`;
   }
   return `${PROXY_URL}/${state.currentSite}/file/data${path}`;
 }

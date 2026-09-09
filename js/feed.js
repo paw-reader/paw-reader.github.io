@@ -11,6 +11,7 @@ import {
 } from "./utils.js";
 import { updateNavTabs, updateNavVisibility, closeAllPostInfo, wrapCarousel } from "./nav.js";
 import { openZipGallery } from "./zip.js";
+import { detectExternalGalleries, renderExternalFileCard } from "./externalGalleries.js";
 
 export const feed = document.getElementById("feed");
 export const feedLoading = document.getElementById("feed-loading");
@@ -18,49 +19,50 @@ export const feedLoading = document.getElementById("feed-loading");
 export const playbackObserver = new IntersectionObserver(
   (entries) => {
     entries.forEach((entry) => {
-      if (entry.target.tagName.toLowerCase() === "video") {
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-          const playPromise = entry.target.play();
+      const el = entry.target;
+      if (el.tagName.toLowerCase() === "video" || el.tagName.toLowerCase() === "audio") {
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+          const playPromise = el.play();
           if (playPromise !== undefined) {
             playPromise.catch(() => {});
           }
-        } else {
-          entry.target.pause();
+        } else if (!entry.isIntersecting || entry.intersectionRatio < 0.25) {
+          el.pause();
         }
       }
     });
   },
-  { threshold: [0, 0.6] }
+  { threshold: [0, 0.25, 0.5] }
 );
 
 const flagObserver = new IntersectionObserver((entries, observer) => {
-  entries.forEach(entry => {
+  entries.forEach((entry) => {
     if (entry.isIntersecting) {
       const card = entry.target;
       const { site, service, user, id } = card.dataset;
-      
+
       observer.unobserve(card);
 
-      if (!site || !service || !user || !id || id.includes('-dm-')) return;
+      if (!site || !service || !user || !id || id.includes("-dm-")) return;
 
       fetch(`${PROXY_URL}/${site}/api/v1/${service}/user/${user}/post/${id}/flag`)
-        .then(res => res.json())
-        .then(data => {
+        .then((res) => res.json())
+        .then((data) => {
           if (data.flagged) {
-            const authorArea = card.querySelector('.post-author');
-            
-            const badge = document.createElement('div');
+            const authorArea = card.querySelector(".post-author");
+
+            const badge = document.createElement("div");
             badge.style.cssText = `
               display: inline-flex; align-items: center; gap: 6px; 
               background: rgba(255, 60, 60, 0.15); color: #ff5555; 
               padding: 4px 10px; border-radius: 8px; font-size: 0.85rem; 
               font-weight: bold; border: 1px solid rgba(255, 60, 60, 0.3); 
-              margin-top: 6px; margin-bottom: 20px; width: fit-content;
+              margin-top: 6px; margin-bottom: 6px; width: fit-content;
             `;
             badge.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> Not Yet Imported`;
-            
+
             if (authorArea) {
-              authorArea.insertAdjacentElement('afterend', badge);
+              authorArea.insertAdjacentElement("afterend", badge);
             } else {
               card.appendChild(badge);
             }
@@ -71,17 +73,91 @@ const flagObserver = new IntersectionObserver((entries, observer) => {
   });
 }, { rootMargin: "150px" });
 
+export function syncCarouselClones(item) {
+  if (!item || !item.parentElement) return;
+  const carousel = item.parentElement;
+  if (!carousel.classList.contains("media-carousel")) return;
+  if (item.dataset.isClone === "true") return;
+
+  const children = Array.from(carousel.children);
+  if (children.length <= 2) return;
+
+  const cloneLast = children[0];
+  const cloneFirst = children[children.length - 1];
+  if (cloneLast?.dataset?.isClone !== "true" || cloneFirst?.dataset?.isClone !== "true") return;
+
+  const firstOriginal = children[1];
+  const lastOriginal = children[children.length - 2];
+
+  let targetClone = null;
+  if (item === firstOriginal) {
+    targetClone = cloneFirst;
+  } else if (item === lastOriginal) {
+    targetClone = cloneLast;
+  }
+
+  if (!targetClone) return;
+
+  const cloneProgress = targetClone.querySelector(".media-progress");
+  const oldClones = Array.from(targetClone.children).filter((c) => c !== cloneProgress);
+  oldClones.forEach((c) => c.remove());
+
+  const img = item.querySelector("img.post-media");
+  const video = item.querySelector("video.post-media");
+  const archiveCard = item.querySelector(".ext-archive-card");
+
+  if (img) {
+    const cloneImg = img.cloneNode(true);
+    targetClone.appendChild(cloneImg);
+    if (cloneProgress) cloneProgress.style.display = "none";
+    targetClone.dataset.loaded = "true";
+  } else if (video) {
+    const cloneVideo = video.cloneNode(true);
+    targetClone.appendChild(cloneVideo);
+    if (cloneProgress) cloneProgress.style.display = "none";
+    targetClone.dataset.loaded = "true";
+  } else if (archiveCard) {
+    if (targetClone.dataset.loaded === "true" && targetClone.querySelector(".ext-archive-card")) return;
+
+    const cloneCard = archiveCard.cloneNode(true);
+    const viewBtn = cloneCard.querySelector(".zip-action-btn");
+    const origViewBtn = archiveCard.querySelector(".zip-action-btn");
+    if (viewBtn && origViewBtn && origViewBtn._onGalleryClick) {
+      viewBtn.addEventListener("click", origViewBtn._onGalleryClick);
+    }
+    targetClone.appendChild(cloneCard);
+    if (cloneProgress) cloneProgress.style.display = "none";
+    targetClone.dataset.loaded = "true";
+  }
+}
+
 export const mediaObserver = new IntersectionObserver(
   (entries) => {
     entries.forEach((entry) => {
       if (entry.isIntersecting) {
         const item = entry.target;
-        
+
+        if (item.dataset.isClone === "true") {
+          const carousel = item.parentElement;
+          if (carousel) {
+            const children = Array.from(carousel.children);
+            if (children.length > 2) {
+              const firstOriginal = children[1];
+              const lastOriginal = children[children.length - 2];
+              const source = item === children[0] ? lastOriginal : firstOriginal;
+              if (source && source.dataset.loaded === "true") {
+                syncCarouselClones(source);
+              }
+            }
+          }
+          return;
+        }
+
         if (!item.dataset.loaded) {
           item.dataset.loaded = "true";
           loadMediaWithProgress(item);
         }
-        
+
         const carousel = item.closest(".media-carousel");
         if (carousel) {
           preloadUpcomingMedia(carousel);
@@ -95,24 +171,34 @@ export const mediaObserver = new IntersectionObserver(
 export function preloadUpcomingMedia(carousel) {
   const preloadCount = window.pawPreloadCount || 0;
   if (preloadCount <= 0) return;
-  
+
   const count = parseInt(carousel.dataset.mediaCount || "0", 10);
   if (count <= 1) return;
-  
+
   const itemWidth = carousel.clientWidth || window.innerWidth;
   if (!itemWidth) return;
 
   const rawIndex = Math.round(carousel.scrollLeft / itemWidth);
-  
+
   for (let i = 1; i <= preloadCount; i++) {
     let targetIndex = rawIndex + i;
-    
+
     if (targetIndex >= carousel.children.length) {
       targetIndex = 1 + ((targetIndex - carousel.children.length) % count);
     }
-    
+
     const item = carousel.children[targetIndex];
     if (item && !item.dataset.loaded) {
+      if (
+        item.dataset.isClone === "true" ||
+        item.dataset.type === "video" ||
+        item.dataset.type === "audio" ||
+        item.dataset.type === "mega" ||
+        item.dataset.type === "dropbox" ||
+        item.dataset.type === "zip"
+      ) {
+        continue;
+      }
       item.dataset.loaded = "true";
       loadMediaWithProgress(item);
     }
@@ -139,19 +225,27 @@ export function detachMedia(item) {
     item._abortController = null;
   }
 
+  if (item._resetDownload) {
+    try {
+      item._resetDownload();
+    } catch (_) {}
+    item._resetDownload = null;
+  }
+
   if (item._blobUrl) {
     URL.revokeObjectURL(item._blobUrl);
     item._blobUrl = null;
   }
 
-  const mediaEls = item.querySelectorAll("video, audio, img.post-media");
+  const mediaEls = item.querySelectorAll("video, audio, img.post-media, .ext-archive-card");
   mediaEls.forEach((el) => {
-    if (el.tagName.toLowerCase() === "video" || el.tagName.toLowerCase() === "audio") {
+    if (el.tagName && (el.tagName.toLowerCase() === "video" || el.tagName.toLowerCase() === "audio")) {
       playbackObserver.unobserve(el);
       el.pause();
       el.removeAttribute("src");
+      while (el.firstChild) el.removeChild(el.firstChild);
       el.load();
-    } else if (el.tagName.toLowerCase() === "img") {
+    } else if (el.tagName && el.tagName.toLowerCase() === "img") {
       el.src = "";
     }
     el.remove();
@@ -166,7 +260,6 @@ export function detachMedia(item) {
   delete item.dataset.loaded;
 }
 
-let recycleTimer = null;
 export function recycleOffscreenCards() {
   if (!feed) return;
   const cards = feed.querySelectorAll(".post-card");
@@ -174,15 +267,19 @@ export function recycleOffscreenCards() {
 
   const h = window.innerHeight || 1;
   const currentCardIndex = Math.round(feed.scrollTop / h);
-  const KEEP_WINDOW = 5;
-
-  const minIndex = Math.max(0, currentCardIndex - KEEP_WINDOW);
-  const maxIndex = Math.min(cards.length - 1, currentCardIndex + KEEP_WINDOW);
+  const KEEP_WINDOW_IMG = 5;
+  const KEEP_WINDOW_VIDEO = 2;
 
   cards.forEach((card, idx) => {
-    if (idx < minIndex || idx > maxIndex) {
+    const isOutOfImgWindow = idx < currentCardIndex - KEEP_WINDOW_IMG || idx > currentCardIndex + KEEP_WINDOW_IMG;
+    const isOutOfVideoWindow = idx < currentCardIndex - KEEP_WINDOW_VIDEO || idx > currentCardIndex + KEEP_WINDOW_VIDEO;
+
+    if (isOutOfImgWindow) {
       const items = card.querySelectorAll(".media-item");
       items.forEach((item) => detachMedia(item));
+    } else if (isOutOfVideoWindow) {
+      const videoItems = card.querySelectorAll('.media-item[data-type="video"], .media-item[data-type="audio"]');
+      videoItems.forEach((item) => detachMedia(item));
     }
   });
 }
@@ -199,6 +296,22 @@ export function resetFeed() {
 }
 
 export async function loadMediaWithProgress(item) {
+  if (item.dataset.isClone === "true") {
+    const carousel = item.parentElement;
+    if (carousel) {
+      const children = Array.from(carousel.children);
+      if (children.length > 2) {
+        const firstOriginal = children[1];
+        const lastOriginal = children[children.length - 2];
+        const source = item === children[0] ? lastOriginal : firstOriginal;
+        if (source && source.dataset.loaded === "true") {
+          syncCarouselClones(source);
+        }
+      }
+    }
+    return;
+  }
+
   const url = item.dataset.url;
   const type = item.dataset.type;
   const progressOverlay = item.querySelector(".media-progress");
@@ -209,6 +322,12 @@ export async function loadMediaWithProgress(item) {
     } else if (progressOverlay) {
       progressOverlay.textContent = "No Media";
     }
+    return;
+  }
+
+  if (type === "mega" || type === "dropbox") {
+    if (progressOverlay) progressOverlay.style.display = "none";
+    renderExternalFileCard(item, type);
     return;
   }
 
@@ -319,10 +438,43 @@ export async function loadMediaWithProgress(item) {
 
     let isPaused = false;
     let abortController = null;
+    let activeReader = null;
     let zipBlob = null;
     let totalSize = 0;
     let filenames = [];
     let sizeStr = "";
+    let downloadChunks = [];
+    let downloadedBytes = 0;
+
+    function resetDownloadState() {
+      if (activeReader) {
+        try {
+          activeReader.cancel("Aborted");
+        } catch (_) {}
+        activeReader = null;
+      }
+      if (abortController) {
+        try {
+          abortController.abort();
+        } catch (_) {}
+        abortController = null;
+      }
+      isPaused = false;
+      downloadChunks = [];
+      downloadedBytes = 0;
+      zipBlob = null;
+      progressFill.style.width = "0%";
+      progressText.textContent = "";
+      progressContainer.style.display = "none";
+      btnDownload.style.display = "inline-block";
+      btnPause.style.display = "none";
+      btnPause.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg> Pause`;
+      btnAbort.style.display = "none";
+      btnSave.style.display = "none";
+      btnView.style.display = "none";
+    }
+
+    item._resetDownload = resetDownloadState;
 
     function renderTree() {
       const headerInfo = sizeStr ? `${sizeStr}, ${filenames.length} files` : `${filenames.length} files`;
@@ -348,45 +500,58 @@ export async function loadMediaWithProgress(item) {
       try {
         if (!window.unzipit) throw new Error("unzipit not loaded");
 
-        try {
-          const headRes = await fetch(url, { method: "HEAD" });
-          if (headRes.status === 204 || headRes.status === 404) {
-             throw new Error("404_NOT_FOUND");
+        let entries = null;
+        if (typeof window.unzipit.HTTPRangeReader === "function") {
+          try {
+            const rangeReader = new window.unzipit.HTTPRangeReader(url);
+            const res = await window.unzipit.unzip(rangeReader);
+            entries = res.entries;
+          } catch (rangeErr) {
+            console.warn("unzipit HTTPRangeReader failed, range requests might not be supported", rangeErr);
           }
-          if (headRes.ok) {
-            const cl = headRes.headers.get("content-length");
-            if (cl) sizeStr = formatBytes(parseInt(cl, 10));
+        }
+
+        if (!sizeStr) {
+          try {
+            const headRes = await fetch(url, { method: "HEAD" });
+            if (headRes.status === 204 || headRes.status === 404) {
+              throw new Error("404_NOT_FOUND");
+            }
+            if (headRes.ok) {
+              const cl = headRes.headers.get("content-length");
+              if (cl) sizeStr = formatBytes(parseInt(cl, 10));
+            }
+          } catch (headErr) {
+            if (headErr.message === "404_NOT_FOUND") {
+              container.innerHTML = "";
+              if (progressOverlay) showMediaUnavailableWarning(progressOverlay, "zip");
+              if (progressOverlay) container.appendChild(progressOverlay);
+              return;
+            }
           }
-        } catch (err) {
-        if (err.message === "404_NOT_FOUND") {
-          container.innerHTML = "";
-          if (progressOverlay) showMediaUnavailableWarning(progressOverlay, "zip");
-          if (progressOverlay) container.appendChild(progressOverlay);
-          return;
-        }
-        console.warn("unzipit failed, falling back", err);
         }
 
-        const { entries } = await window.unzipit.unzip(url);
+        if (entries) {
+          if (!sizeStr) {
+            const compressedTotal = Object.values(entries).reduce((sum, e) => sum + (e.compressedSize || e.size || 0), 0);
+            if (compressedTotal > 0) sizeStr = formatBytes(compressedTotal);
+          }
 
-        if (!sizeStr && entries) {
-          const compressedTotal = Object.values(entries).reduce((sum, e) => sum + (e.compressedSize || e.size || 0), 0);
-          if (compressedTotal > 0) sizeStr = formatBytes(compressedTotal);
+          filenames = Object.keys(entries)
+            .filter((p) => !p.endsWith("/") && !p.startsWith("__MACOSX/"))
+            .map((p) => p.split("/").pop());
+
+          filenames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+          renderTree();
+        } else {
+          infoText.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> ${sizeStr ? sizeStr + " Archive" : filename}</div><br>(Click Download to fetch and view files)`;
         }
-
-        filenames = Object.keys(entries)
-          .filter((p) => !p.endsWith("/") && !p.startsWith("__MACOSX/"))
-          .map((p) => p.split("/").pop());
-
-        filenames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
-
-        renderTree();
 
         if (window.pawAutoDownloadZip) {
           startDownload();
         }
       } catch (err) {
-        console.warn("unzipit failed, falling back", err);
+        console.warn("scanZip error", err);
         infoText.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> ${filename}</div><br>(Click Download to fetch)`;
         if (window.pawAutoDownloadZip) {
           startDownload();
@@ -395,78 +560,93 @@ export async function loadMediaWithProgress(item) {
     }
 
     async function startDownload() {
+      resetDownloadState();
       btnDownload.style.display = "none";
       btnPause.style.display = "inline-block";
       btnAbort.style.display = "inline-block";
       btnSave.style.display = "none";
       btnView.style.display = "none";
       progressContainer.style.display = "block";
+      progressFill.style.width = "0%";
+      progressText.textContent = "Starting download...";
       isPaused = false;
       btnPause.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg> Pause`;
 
       abortController = new AbortController();
-      let chunks = [];
-      let downloaded = 0;
-      let startTime = Date.now();
+      const signal = abortController.signal;
+      downloadChunks = [];
+      downloadedBytes = 0;
+      const startTime = Date.now();
 
       try {
-        const response = await fetch(url, { signal: abortController.signal });
-        if (!response.ok) throw new Error("Network error");
+        const response = await fetch(url, { signal });
+        if (!response.ok) throw new Error(`Network error: ${response.status}`);
         totalSize = parseInt(response.headers.get("content-length") || "0", 10);
         if (totalSize > 0 && !sizeStr) {
           sizeStr = formatBytes(totalSize);
           renderTree();
         }
-        const reader = response.body.getReader();
+        activeReader = response.body.getReader();
 
         while (true) {
+          if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+
           if (isPaused) {
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            if (abortController.signal.aborted) throw new DOMException("Aborted", "AbortError");
+            await new Promise((resolve) => setTimeout(resolve, 300));
             continue;
           }
 
-          const { done, value } = await reader.read();
+          const { done, value } = await activeReader.read();
           if (done) break;
 
-          chunks.push(value);
-          downloaded += value.length;
+          downloadChunks.push(value);
+          downloadedBytes += value.length;
 
           if (totalSize) {
-            progressFill.style.width = Math.min(100, (downloaded / totalSize) * 100) + "%";
+            progressFill.style.width = Math.min(100, (downloadedBytes / totalSize) * 100) + "%";
 
             const elapsed = (Date.now() - startTime) / 1000;
-            const speed = downloaded / elapsed;
-            const remaining = (totalSize - downloaded) / speed;
+            const speed = elapsed > 0 ? downloadedBytes / elapsed : 0;
+            const remaining = speed > 0 ? (totalSize - downloadedBytes) / speed : 0;
 
-            progressText.textContent = `${formatBytes(downloaded)} / ${formatBytes(totalSize)} - ${formatBytes(speed)}/s - ${Math.round(remaining)}s left`;
+            progressText.textContent = `${formatBytes(downloadedBytes)} / ${formatBytes(totalSize)} - ${formatBytes(speed)}/s - ${Math.round(remaining)}s left`;
           } else {
-            progressText.textContent = `${formatBytes(downloaded)} downloaded`;
+            progressText.textContent = `${formatBytes(downloadedBytes)} downloaded`;
           }
         }
 
-        zipBlob = new Blob(chunks);
+        activeReader = null;
+        zipBlob = new Blob(downloadChunks);
+        downloadChunks = [];
+
         if (!sizeStr) {
-          sizeStr = formatBytes(downloaded);
-          renderTree();
+          sizeStr = formatBytes(downloadedBytes);
         }
+
+        if (filenames.length === 0 && window.unzipit) {
+          try {
+            const { entries } = await window.unzipit.unzip(zipBlob);
+            filenames = Object.keys(entries)
+              .filter((p) => !p.endsWith("/") && !p.startsWith("__MACOSX/"))
+              .map((p) => p.split("/").pop());
+            filenames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+          } catch (_) {}
+        }
+        renderTree();
+
         btnPause.style.display = "none";
         btnAbort.style.display = "none";
         btnSave.style.display = "inline-block";
         btnView.style.display = "inline-block";
         progressContainer.style.display = "none";
       } catch (err) {
-        if (err.name === "AbortError") {
-          progressText.textContent = "Aborted.";
-          btnDownload.style.display = "inline-block";
-          btnPause.style.display = "none";
-          btnAbort.style.display = "none";
-        } else {
-          progressText.textContent = "Error downloading.";
-          btnDownload.style.display = "inline-block";
-          btnPause.style.display = "none";
-          btnAbort.style.display = "none";
+        if (err.name === "AbortError" || signal.aborted) {
+          return;
         }
+        progressText.textContent = "Error downloading.";
+        btnDownload.style.display = "inline-block";
+        btnPause.style.display = "none";
+        btnAbort.style.display = "none";
       }
     }
 
@@ -485,7 +665,7 @@ export async function loadMediaWithProgress(item) {
 
     btnAbort.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (abortController) abortController.abort();
+      resetDownloadState();
     });
 
     btnSave.addEventListener("click", (e) => {
@@ -511,16 +691,74 @@ export async function loadMediaWithProgress(item) {
   }
 
   if (type === "video" || type === "audio") {
+    if (item.dataset.isClone === "true") {
+      if (progressOverlay) progressOverlay.style.display = "none";
+      return;
+    }
+
     if (progressOverlay) {
-      progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Buffering Video</span>`;
+      progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Buffering ${type === "video" ? "Video" : "Audio"}</span>`;
     }
     const video = document.createElement(type === "video" ? "video" : "audio");
     video.className = "post-media";
-    if (type === "video") video.loop = true;
-    if (type === "video") video.muted = true;
-    video.playsInline = true;
+    if (type === "video") {
+      video.loop = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      video.setAttribute("webkit-playsinline", "");
+      video.disableRemotePlayback = true;
+      video.preload = "metadata";
+    }
     video.controls = true;
+
+    let isBuffering = false;
+    let resumeTimeout = null;
+
+    video.addEventListener("waiting", () => {
+      if (video.paused && !isBuffering) return;
+      isBuffering = true;
+      if (progressOverlay) {
+        progressOverlay.innerHTML = `Buffering...<br><span style="font-size:0.9rem; font-weight:normal; color:#ccc">Buffering stream</span>`;
+        progressOverlay.style.display = "flex";
+      }
+      clearTimeout(resumeTimeout);
+      resumeTimeout = setTimeout(() => {
+        if (isBuffering && document.contains(video)) {
+          const rect = video.getBoundingClientRect();
+          const inView = rect.top < window.innerHeight && rect.bottom > 0;
+          if (inView && !video.ended) {
+            video.play().catch(() => {});
+          }
+        }
+      }, 1000);
+    });
+
+    video.addEventListener("stalled", () => {
+      if (video.paused && !isBuffering) return;
+      if (progressOverlay) {
+        progressOverlay.innerHTML = `Buffering...<br><span style="font-size:0.9rem; font-weight:normal; color:#ccc">Connecting to stream</span>`;
+        progressOverlay.style.display = "flex";
+      }
+    });
+
+    video.addEventListener("canplay", () => {
+      if (progressOverlay) progressOverlay.style.display = "none";
+      syncCarouselClones(item);
+    });
+
+    video.addEventListener("playing", () => {
+      isBuffering = false;
+      clearTimeout(resumeTimeout);
+      if (progressOverlay) progressOverlay.style.display = "none";
+    });
+
+    video.addEventListener("pause", () => {
+      clearTimeout(resumeTimeout);
+    });
+
     video.addEventListener("error", () => {
+      clearTimeout(resumeTimeout);
       video.style.display = "none";
       if (progressOverlay) progressOverlay.style.display = "flex";
 
@@ -550,11 +788,26 @@ export async function loadMediaWithProgress(item) {
       }
     });
 
-    video.addEventListener("canplay", () => {
-      if (progressOverlay) progressOverlay.style.display = "none";
-    });
+    const ext = (item.dataset.path || url).split(".").pop().toLowerCase();
+    const mimeMap = {
+      mp4: "video/mp4",
+      webm: "video/webm",
+      mov: "video/quicktime",
+      mp3: "audio/mpeg",
+      ogg: "audio/ogg",
+      wav: "audio/wav",
+      m4a: "audio/mp4",
+    };
+    const mime = mimeMap[ext];
+    if (mime) {
+      const source = document.createElement("source");
+      source.src = url;
+      source.type = mime;
+      video.appendChild(source);
+    } else {
+      video.src = url;
+    }
 
-    video.src = url;
     item.appendChild(video);
     playbackObserver.observe(video);
     return;
@@ -689,6 +942,7 @@ export async function loadMediaWithProgress(item) {
     img.className = "post-media";
     img.onload = () => {
       if (progressOverlay) progressOverlay.style.display = "none";
+      syncCarouselClones(item);
     };
     img.onerror = () => {
       img.style.display = "none";
@@ -724,9 +978,10 @@ export function attachMedia(item, blob, type) {
     img.src = objUrl;
     item.appendChild(img);
   }
+  syncCarouselClones(item);
 }
 
-function smoothScroll(element, targetLeft, duration = 140, onComplete = null) {
+export function smoothScroll(element, targetLeft, duration = 140, onComplete = null) {
   if (window.pawAnimationsDisabled || duration <= 0) {
     element.scrollLeft = targetLeft;
     element.style.scrollSnapType = "";
@@ -885,8 +1140,10 @@ export function createPostCard(post) {
     "wav",
     "m4a",
   ];
+
   function categorizeFile(fileObj) {
     if (!fileObj || !fileObj.path) return;
+    if (fileObj.path.toLowerCase().startsWith("file:")) return;
     if (window.pawHideCovers) {
       const fileName = (fileObj.name || fileObj.path.split("/").pop()).toLowerCase();
       if (/(^|[\?&]f=)cover\.(jpe?g|png|webp|gif|bmp)/i.test(fileName)) return;
@@ -908,12 +1165,14 @@ export function createPostCard(post) {
 
   let cleanContent = post.content || post.substring || "";
   if (cleanContent) {
+    cleanContent = cleanContent.replace(/(href|src)=["']file:[^"']*["']/gi, '$1="#"');
+
     const tmp = document.createElement("div");
     tmp.innerHTML = cleanContent;
     const inlineImgs = tmp.querySelectorAll("img");
     inlineImgs.forEach((img) => {
       const src = img.getAttribute("src");
-      if (src && !allMedia.some((m) => m.path === src)) {
+      if (src && !src.toLowerCase().startsWith("file:") && !allMedia.some((m) => m.path === src)) {
         let skip = false;
         if (window.pawHideCovers) {
           const fileName = src.split("/").pop().toLowerCase();
@@ -928,6 +1187,32 @@ export function createPostCard(post) {
       img.remove();
     });
     cleanContent = tmp.innerHTML;
+  }
+
+  const extGalleries = detectExternalGalleries(cleanContent || post.substring || "");
+  if (extGalleries.mega.length > 0 || extGalleries.dropbox.length > 0) {
+    extGalleries.mega.forEach((url, i) => {
+      const label = extGalleries.mega.length > 1 ? `Mega Archive ${i + 1}` : "Mega Archive";
+      allMedia.push({
+        path: url,
+        name: label,
+        isExternal: true,
+        externalType: "mega",
+        url: url,
+        postTitle: post.title || label,
+      });
+    });
+    extGalleries.dropbox.forEach((url, i) => {
+      const label = extGalleries.dropbox.length > 1 ? `Dropbox Archive ${i + 1}` : "Dropbox Archive";
+      allMedia.push({
+        path: url,
+        name: label,
+        isExternal: true,
+        externalType: "dropbox",
+        url: url,
+        postTitle: post.title || label,
+      });
+    });
   }
 
   const hasAvailableMedia = allMedia.some((m) => !m.isUnimported);
@@ -1063,9 +1348,8 @@ export function createPostCard(post) {
 
   const content = document.createElement("div");
   content.className = "post-content";
-  
   content.style.paddingBottom = "80px";
-  
+
   if (cleanContent) {
     cleanContent = cleanContent.replace(/<a /gi, '<a target="_blank" rel="noopener noreferrer" ');
     content.innerHTML = cleanContent;
@@ -1106,19 +1390,27 @@ export function createPostCard(post) {
       item.className = "media-item";
       item.dataset.originalName = mediaObj.name;
 
-      const ext = mediaPath.split(".").pop().toLowerCase();
-      const isVideo = ["mp4", "webm", "mov"].includes(ext);
-      const isAudio = ["mp3", "ogg", "wav", "m4a"].includes(ext);
+      if (mediaObj.isExternal) {
+        item.dataset.url = mediaObj.url;
+        item.dataset.path = mediaObj.url;
+        item.dataset.type = mediaObj.externalType;
+        item.dataset.postTitle = mediaObj.postTitle || "";
+        item.dataset.isExternal = "true";
+      } else {
+        const ext = mediaPath.split(".").pop().toLowerCase();
+        const isVideo = ["mp4", "webm", "mov"].includes(ext);
+        const isAudio = ["mp3", "ogg", "wav", "m4a"].includes(ext);
+        item.dataset.url = getMediaUrl(mediaPath);
+        item.dataset.path = mediaPath;
+        item.dataset.isUnimported = mediaObj.isUnimported ? "true" : "false";
+        item.dataset.type = ext === "zip" ? "zip" : isVideo ? "video" : isAudio ? "audio" : "image";
+      }
 
       const progressOverlay = document.createElement("div");
       progressOverlay.className = "media-progress";
       item.appendChild(progressOverlay);
 
       progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Connecting...</span>`;
-      item.dataset.url = getMediaUrl(mediaPath);
-      item.dataset.path = mediaPath;
-      item.dataset.isUnimported = mediaObj.isUnimported ? "true" : "false";
-      item.dataset.type = ext === "zip" ? "zip" : isVideo ? "video" : isAudio ? "audio" : "image";
       carousel.appendChild(item);
       mediaObserver.observe(item);
     });
@@ -1130,6 +1422,9 @@ export function createPostCard(post) {
       const lastChild = carousel.children[carousel.children.length - 1];
       const cloneFirst = firstChild.cloneNode(true);
       const cloneLast = lastChild.cloneNode(true);
+
+      cloneFirst.dataset.isClone = "true";
+      cloneLast.dataset.isClone = "true";
 
       carousel.insertBefore(cloneLast, firstChild);
       carousel.appendChild(cloneFirst);
@@ -1206,6 +1501,7 @@ export function createPostCard(post) {
 
   card.addEventListener("click", (e) => {
     if (e.target.tagName.toLowerCase() === "a" || e.target.closest("a")) return;
+    if (e.target.tagName.toLowerCase() === "button" || e.target.closest("button")) return;
     if (e.target.tagName.toLowerCase() === "video") return;
 
     if (card.dataset.isDragging === "true") {
@@ -1395,7 +1691,7 @@ export async function fetchPosts() {
           card.dataset.service = post.service;
           card.dataset.user = post.user;
           card.dataset.id = post.id;
-          
+
           flagObserver.observe(card);
 
           feed.appendChild(card);

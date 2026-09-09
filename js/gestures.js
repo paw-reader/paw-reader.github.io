@@ -2,6 +2,7 @@ import { state } from "./state.js";
 import { closeAllPostInfo, feedView, creatorsView, welcomeScreen, showView, updateNavTabs } from "./nav.js";
 import { feed, navigateCarousel, recycleOffscreenCards, resetFeed } from "./feed.js";
 import { zipViewer, zipContent, setZipNavVisible } from "./zip.js";
+import { abortExternalGallery } from "./externalGalleries.js";
 
 export function initGestures() {
   let feedScrollTimeout;
@@ -94,6 +95,7 @@ export function initGestures() {
       e.preventDefault();
 
       if (zipViewer && !zipViewer.classList.contains("hidden")) {
+        abortExternalGallery();
         setZipNavVisible(false, true);
         zipViewer.classList.add("hidden");
         if (zipContent) zipContent.innerHTML = "";
@@ -133,7 +135,7 @@ export function initGestures() {
     const h = window.innerHeight;
 
     if (zipViewer && !zipViewer.classList.contains("hidden")) {
-      const count = state.currentZipObjectUrls.length;
+      const count = parseInt(zipContent?.dataset?.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
       if (!zipContent || count <= 1) return;
 
       if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") {
@@ -206,7 +208,8 @@ export function initGestures() {
         e.target.closest("#settings-menu") ||
         e.target.closest(".media-progress") ||
         e.target.closest("#creators-view") ||
-        e.target.closest(".zip-info-text")
+        e.target.closest(".zip-info-text") ||
+        e.target.closest("#nav-tabs")
       )
         return;
 

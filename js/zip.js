@@ -1,6 +1,7 @@
 import { state } from "./state.js";
 import { formatBytes, showMediaUnavailableWarning } from "./utils.js";
 import { showView, welcomeScreen, navBack, updateNavTabs, wrapCarousel, settingsMenu } from "./nav.js";
+import { handleCarouselScrollSettled, smoothScroll } from "./feed.js";
 
 export const zipViewer = document.getElementById("zip-viewer");
 export const zipTitle = document.getElementById("zip-title");
