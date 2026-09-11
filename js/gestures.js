@@ -1,8 +1,7 @@
 import { state } from "./state.js";
 import { closeAllPostInfo, feedView, creatorsView, welcomeScreen, showView, updateNavTabs } from "./nav.js";
 import { feed, navigateCarousel, recycleOffscreenCards, resetFeed } from "./feed.js";
-import { zipViewer, zipContent, setZipNavVisible } from "./zip.js";
-import { abortExternalGallery } from "./externalGalleries.js";
+import { zipViewer, zipContent, setZipNavVisible, closeZipGallery } from "./zip.js";
 
 export function initGestures() {
   let feedScrollTimeout;
@@ -91,16 +90,11 @@ export function initGestures() {
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName.toLowerCase() === "input") return;
 
-    if (e.key === "Escape" || (e.key === "Shift" && !e.ctrlKey && !e.metaKey)) {
+    if (e.key === "Escape") {
       e.preventDefault();
 
       if (zipViewer && !zipViewer.classList.contains("hidden")) {
-        abortExternalGallery();
-        setZipNavVisible(false, true);
-        zipViewer.classList.add("hidden");
-        if (zipContent) zipContent.innerHTML = "";
-        state.currentZipObjectUrls.forEach((url) => URL.revokeObjectURL(url));
-        state.currentZipObjectUrls = [];
+        closeZipGallery();
         return;
       }
 
@@ -204,7 +198,8 @@ export function initGestures() {
     (e) => {
       if (!window.pawAnimationsDisabled) return;
       if (
-        e.target.closest("#zip-settings-viewer") ||
+        e.target.closest("#zip-nav") ||
+        e.target.closest("#zip-indicator") ||
         e.target.closest("#settings-menu") ||
         e.target.closest(".media-progress") ||
         e.target.closest("#creators-view") ||
@@ -291,6 +286,16 @@ export function initGestures() {
     (e) => {
       if (!window.pawAnimationsDisabled) return;
       if (e.touches.length !== 1) return;
+      if (
+        e.target.closest("#zip-nav") ||
+        e.target.closest("#zip-indicator") ||
+        e.target.closest("#settings-menu") ||
+        e.target.closest(".media-progress") ||
+        e.target.closest("#creators-view") ||
+        e.target.closest(".zip-info-text") ||
+        e.target.closest("#nav-tabs")
+      )
+        return;
       globalTouchStartX = e.touches[0].clientX;
       globalTouchStartY = e.touches[0].clientY;
       touchHijackHandled = false;
@@ -303,11 +308,13 @@ export function initGestures() {
     (e) => {
       if (!window.pawAnimationsDisabled) return;
       if (
-        e.target.closest("#zip-settings-viewer") ||
+        e.target.closest("#zip-nav") ||
+        e.target.closest("#zip-indicator") ||
         e.target.closest("#settings-menu") ||
         e.target.closest(".media-progress") ||
         e.target.closest("#creators-view") ||
-        e.target.closest(".zip-info-text")
+        e.target.closest(".zip-info-text") ||
+        e.target.closest("#nav-tabs")
       )
         return;
 
@@ -327,11 +334,13 @@ export function initGestures() {
   document.addEventListener("touchend", (e) => {
     if (!window.pawAnimationsDisabled) return;
     if (
-      e.target.closest("#zip-settings-viewer") ||
+      e.target.closest("#zip-nav") ||
+      e.target.closest("#zip-indicator") ||
       e.target.closest("#settings-menu") ||
       e.target.closest(".media-progress") ||
       e.target.closest("#creators-view") ||
-      e.target.closest(".zip-info-text")
+      e.target.closest(".zip-info-text") ||
+      e.target.closest("#nav-tabs")
     )
       return;
 
@@ -371,7 +380,7 @@ export function initGestures() {
       else if (dx < -30) target -= w;
       target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
       carousel.scrollTo({ left: target, behavior: "auto" });
-    } else if (feedEl && feedView && !feedView.classList.contains("hidden")) {
+    } else if (feedEl && feedView && feedView.classList.contains("active")) {
       const h = window.innerHeight;
       let target = Math.round(feedEl.scrollTop / h) * h;
       if (dy > 30) target += h;

@@ -12,51 +12,20 @@ export const serviceFilterSelect = document.getElementById("creator-service-filt
 export const contentFilterSelect = document.getElementById("creator-content-filter");
 export const genderFilterSelect = document.getElementById("creator-gender-filter");
 export const paginationContainer = document.getElementById("creator-pagination");
-
-let isSyncing = false;
-export async function syncCumCreators() {
-  if (isSyncing) return;
-  isSyncing = true;
-  let offset = 0;
-  try {
-    const initRes = await fetch(`${PROXY_URL}/cum/api/v1/creators`);
-    const initData = await initRes.json();
-    const total = initData.total || 14000;
-
-    while (offset < total && state.currentSite === "cum") {
-      const fetchPromises = [];
-      for (let i = 0; i < 5 && offset < total; i++) {
-        fetchPromises.push(fetch(`${PROXY_URL}/cum/api/v1/creators?limit=50&o=${offset}`).then((r) => r.json()));
-        offset += 50;
+async function fetchWithRetry(url, options = {}, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.status === 429 && i < retries) {
+        await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+        continue;
       }
-      const results = await Promise.allSettled(fetchPromises);
-      let added = false;
-      for (const res of results) {
-        if (res.status === "fulfilled" && res.value.creators) {
-          const existingIds = new Set(state.allCreators.map((c) => c.id));
-          res.value.creators.forEach((c) => {
-            if (c.service === "discord") return;
-            if (!existingIds.has(c.id)) {
-              c.allPlatforms = [c];
-              state.allCreators.push(c);
-              added = true;
-            }
-          });
-        }
-      }
-      if (
-        added &&
-        state.currentSite === "cum" &&
-        document.getElementById("creators-view") &&
-        document.getElementById("creators-view").classList.contains("active")
-      ) {
-        filterAndSortCreators();
-      }
+      return res;
+    } catch (err) {
+      if (i === retries) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
     }
-  } catch (e) {
-    console.warn("Background sync failed", e);
   }
-  isSyncing = false;
 }
 
 export async function loadCreators() {
@@ -71,20 +40,22 @@ export async function loadCreators() {
     let rawCreators = [];
     if (state.currentSite === "cum") {
       const moxxyServices = ["onlyfans", "fansly", "patreon"];
-      for (const s of moxxyServices) {
-        try {
-          const res = await fetch(`${PROXY_URL}/${state.currentSite}/api/v1/creators?service=${s}&limit=50`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.creators) rawCreators.push(...data.creators);
-          }
-        } catch (e) {
-          console.warn(`Failed to fetch ${s} creators for cum.st`, e);
+      const results = await Promise.allSettled(
+        moxxyServices.map((s, idx) =>
+          new Promise((resolve) => setTimeout(resolve, idx * 100)).then(() =>
+            fetchWithRetry(`${PROXY_URL}/${state.currentSite}/api/v1/creators?service=${s}&limit=50`).then((res) =>
+              res.ok ? res.json() : null
+            )
+          )
+        )
+      );
+      results.forEach((r) => {
+        if (r.status === "fulfilled" && r.value && r.value.creators) {
+          rawCreators.push(...r.value.creators);
         }
-      }
-      syncCumCreators();
+      });
     } else {
-      const res = await fetch(`${PROXY_URL}/${state.currentSite}/api/v1/creators`);
+      const res = await fetchWithRetry(`${PROXY_URL}/${state.currentSite}/api/v1/creators`);
       if (!res.ok) throw new Error("Failed to fetch creators: " + res.status + " " + res.statusText);
       rawCreators = await res.json();
     }
@@ -94,15 +65,16 @@ export async function loadCreators() {
     // Pass 1: Build name -> relation_id mapping so order doesn't matter
     rawCreators.forEach((c) => {
       if (c.service === "discord") return;
-      if (c.relation_id !== undefined && c.relation_id !== null) {
-        nameToRelationId.set(c.name.toLowerCase().trim(), c.relation_id);
+      const lowerName = (c.name || "").toLowerCase().trim();
+      if (c.relation_id !== undefined && c.relation_id !== null && lowerName) {
+        nameToRelationId.set(lowerName, c.relation_id);
       }
     });
 
     // Pass 2: Group creators
     rawCreators.forEach((c) => {
       if (c.service === "discord") return;
-      const lowerName = c.name.toLowerCase().trim();
+      const lowerName = (c.name || "").toLowerCase().trim();
       const heuristicName = lowerName.replace(/[\s_\-]/g, "");
       let key = "";
 
@@ -168,7 +140,7 @@ export async function loadCreators() {
 
 export function filterAndSortCreators() {
   const query = searchInput ? searchInput.value.toLowerCase() : "";
-  const sort = sortSelect ? sortSelect.value : "followers-desc";
+  const sort = sortSelect ? sortSelect.value : "popularity";
   const contentFilter = contentFilterSelect ? contentFilterSelect.value : "content";
   const genderFilter = genderFilterSelect ? genderFilterSelect.value : "all";
 
@@ -177,7 +149,7 @@ export function filterAndSortCreators() {
     : [];
 
   state.filteredCreators = state.allCreators.filter((c) => {
-    const matchesQuery = c.name.toLowerCase().includes(query);
+    const matchesQuery = (c.name || "").toLowerCase().includes(query);
 
     const matchesService =
       checkedServices.length === 0 ||
@@ -207,7 +179,7 @@ export function filterAndSortCreators() {
   const isAsc = state.creatorSortDir === "asc";
   const getTime = (v) => {
     if (!v) return 0;
-    if (typeof v === "number") return v;
+    if (typeof v === "number") return v < 1e11 ? v * 1000 : v;
     const t = new Date(v).getTime();
     return isNaN(t) ? 0 : t;
   };
@@ -254,7 +226,7 @@ export function buildCreatorCard(creator, checkedServices = []) {
   const img = document.createElement("img");
   img.className = "creator-image";
   if (state.currentSite === "cum") {
-    img.src = `https://img.cum.st/creator/${initialPlatform.service}/${initialPlatform.id}/avatar.webp`;
+    img.src = `${PROXY_URL}/cum/creator-avatar/${initialPlatform.service}/${initialPlatform.id}/avatar.webp`;
   } else {
     img.src = `${PROXY_URL}/${state.currentSite}/icons/${initialPlatform.service}/${initialPlatform.id}`;
   }
@@ -308,7 +280,7 @@ export function buildCreatorCard(creator, checkedServices = []) {
       currentPlatformIndex = (currentPlatformIndex + 1) % creator.allPlatforms.length;
       const newPlatform = creator.allPlatforms[currentPlatformIndex];
       if (state.currentSite === "cum") {
-        img.src = `https://img.cum.st/creator/${newPlatform.service}/${newPlatform.id}/avatar.webp`;
+        img.src = `${PROXY_URL}/cum/creator-avatar/${newPlatform.service}/${newPlatform.id}/avatar.webp`;
       } else {
         img.src = `${PROXY_URL}/${state.currentSite}/icons/${newPlatform.service}/${newPlatform.id}`;
       }

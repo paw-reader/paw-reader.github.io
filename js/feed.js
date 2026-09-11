@@ -4,6 +4,7 @@ import {
   getServiceColor,
   getMediaUrl,
   showMediaUnavailableWarning,
+  renderMediaProgress,
   startProgress,
   stopProgress,
   getServiceCreatorUrl,
@@ -11,7 +12,7 @@ import {
 } from "./utils.js";
 import { updateNavTabs, updateNavVisibility, closeAllPostInfo, wrapCarousel } from "./nav.js";
 import { openZipGallery } from "./zip.js";
-import { detectExternalGalleries, renderExternalFileCard } from "./externalGalleries.js";
+import { detectExternalGalleries, renderExternalFileCard, escapeHtml } from "./externalGalleries.js";
 
 export const feed = document.getElementById("feed");
 export const feedLoading = document.getElementById("feed-loading");
@@ -43,26 +44,26 @@ const flagObserver = new IntersectionObserver((entries, observer) => {
 
       observer.unobserve(card);
 
-      if (!site || !service || !user || !id || id.includes("-dm-")) return;
+      if (site !== "pawchive" || !service || !user || !id || id.includes("-dm-")) return;
 
       fetch(`${PROXY_URL}/${site}/api/v1/${service}/user/${user}/post/${id}/flag`)
         .then((res) => res.json())
         .then((data) => {
           if (data.flagged) {
-            const authorArea = card.querySelector(".post-author");
+            const titleArea = card.querySelector(".post-title");
 
-            const badge = document.createElement("div");
+            const badge = document.createElement("span");
             badge.style.cssText = `
               display: inline-flex; align-items: center; gap: 6px; 
               background: rgba(255, 60, 60, 0.15); color: #ff5555; 
-              padding: 4px 10px; border-radius: 8px; font-size: 0.85rem; 
+              padding: 2px 8px; border-radius: 8px; font-size: 0.8rem; 
               font-weight: bold; border: 1px solid rgba(255, 60, 60, 0.3); 
-              margin-top: 6px; margin-bottom: 6px; width: fit-content;
+              flex-shrink: 0; width: fit-content;
             `;
             badge.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> Not Yet Imported`;
 
-            if (authorArea) {
-              authorArea.insertAdjacentElement("afterend", badge);
+            if (titleArea) {
+              titleArea.appendChild(badge);
             } else {
               card.appendChild(badge);
             }
@@ -103,7 +104,7 @@ export function syncCarouselClones(item) {
   oldClones.forEach((c) => c.remove());
 
   const img = item.querySelector("img.post-media");
-  const video = item.querySelector("video.post-media");
+  const video = item.querySelector("video.post-media, audio.post-media");
   const archiveCard = item.querySelector(".ext-archive-card");
 
   if (img) {
@@ -112,8 +113,17 @@ export function syncCarouselClones(item) {
     if (cloneProgress) cloneProgress.style.display = "none";
     targetClone.dataset.loaded = "true";
   } else if (video) {
-    const cloneVideo = video.cloneNode(true);
-    targetClone.appendChild(cloneVideo);
+    const path = item.dataset.path;
+    if (path && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+      const cloneImg = document.createElement("img");
+      cloneImg.className = "post-media";
+      cloneImg.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${path}`;
+      targetClone.appendChild(cloneImg);
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "post-media";
+      targetClone.appendChild(placeholder);
+    }
     if (cloneProgress) cloneProgress.style.display = "none";
     targetClone.dataset.loaded = "true";
   } else if (archiveCard) {
@@ -124,6 +134,10 @@ export function syncCarouselClones(item) {
     const origViewBtn = archiveCard.querySelector(".zip-action-btn");
     if (viewBtn && origViewBtn && origViewBtn._onGalleryClick) {
       viewBtn.addEventListener("click", origViewBtn._onGalleryClick);
+    }
+    const extLink = cloneCard.querySelector("a.zip-action-btn");
+    if (extLink) {
+      extLink.addEventListener("click", (e) => e.stopPropagation());
     }
     targetClone.appendChild(cloneCard);
     if (cloneProgress) cloneProgress.style.display = "none";
@@ -200,7 +214,7 @@ export function preloadUpcomingMedia(carousel) {
         continue;
       }
       item.dataset.loaded = "true";
-      loadMediaWithProgress(item);
+      setTimeout(() => loadMediaWithProgress(item), (i - 1) * 120);
     }
   }
 }
@@ -254,7 +268,8 @@ export function detachMedia(item) {
   const progressOverlay = item.querySelector(".media-progress");
   if (progressOverlay) {
     progressOverlay.style.display = "flex";
-    progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Waiting</span>`;
+    const filename = item.dataset.originalName || (item.dataset.path || "").split("/").pop() || "media";
+    renderMediaProgress(progressOverlay, "Loading...", 0, filename, "Waiting", "");
   }
 
   delete item.dataset.loaded;
@@ -278,8 +293,11 @@ export function recycleOffscreenCards() {
       const items = card.querySelectorAll(".media-item");
       items.forEach((item) => detachMedia(item));
     } else if (isOutOfVideoWindow) {
-      const videoItems = card.querySelectorAll('.media-item[data-type="video"], .media-item[data-type="audio"]');
-      videoItems.forEach((item) => detachMedia(item));
+      const videoEls = card.querySelectorAll('.media-item[data-type="video"], .media-item[data-type="audio"], .media-item video, .media-item audio');
+      videoEls.forEach((el) => {
+        const item = el.classList.contains("media-item") ? el : el.closest(".media-item");
+        if (item) detachMedia(item);
+      });
     }
   });
 }
@@ -315,10 +333,18 @@ export async function loadMediaWithProgress(item) {
   const url = item.dataset.url;
   const type = item.dataset.type;
   const progressOverlay = item.querySelector(".media-progress");
+  const filename = item.dataset.originalName || (item.dataset.path || url).split("/").pop() || "media";
+
+  const triggerRetry = () => {
+    delete item.dataset.loaded;
+    detachMedia(item);
+    item.dataset.loaded = "true";
+    loadMediaWithProgress(item);
+  };
 
   if (!url || item.dataset.isUnimported === "true" || url.includes("/unimported.")) {
     if (item.dataset.isUnimported === "true" || (url && url.includes("/unimported."))) {
-      showMediaUnavailableWarning(progressOverlay, type);
+      showMediaUnavailableWarning(progressOverlay, { type, filename, errorStatus: "404", onRetry: triggerRetry });
     } else if (progressOverlay) {
       progressOverlay.textContent = "No Media";
     }
@@ -344,23 +370,29 @@ export async function loadMediaWithProgress(item) {
     container.style.padding = "20px";
     container.style.boxSizing = "border-box";
 
-    const filename = item.dataset.originalName || (item.dataset.path || url).split("/").pop() || "Archive.zip";
+    const zipFilename = item.dataset.originalName || (item.dataset.path || url).split("/").pop() || "Archive.zip";
 
     const infoText = document.createElement("div");
+    infoText.className = "zip-info-text";
     infoText.style.color = "#fff";
     infoText.style.fontFamily = "monospace";
-    infoText.style.whiteSpace = "pre-wrap";
     infoText.style.background = "rgba(0,0,0,0.5)";
     infoText.style.padding = "15px";
     infoText.style.borderRadius = "10px";
     infoText.style.marginBottom = "20px";
+    infoText.style.width = "fit-content";
     infoText.style.maxWidth = "100%";
-    infoText.style.overflow = "auto";
+    infoText.style.overflowX = "auto";
+    infoText.style.overflowY = "auto";
     infoText.style.maxHeight = "40%";
-    infoText.className = "zip-info-text";
     infoText.style.fontSize = "0.9rem";
     infoText.style.textAlign = "left";
-    infoText.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> ${filename}</div><br>Scanning contents...`;
+    infoText.style.boxSizing = "border-box";
+
+    infoText.addEventListener("click", (e) => e.stopPropagation());
+    infoText.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+
+    infoText.innerHTML = `<div class="zip-info-header" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;position:sticky;left:0;width:100%;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> <span>${escapeHtml(zipFilename)}</span></div><div style="text-align:center;color:#aaa;margin-top:6px;">Scanning contents...</div>`;
 
     container.appendChild(infoText);
 
@@ -478,22 +510,20 @@ export async function loadMediaWithProgress(item) {
 
     function renderTree() {
       const headerInfo = sizeStr ? `${sizeStr}, ${filenames.length} files` : `${filenames.length} files`;
-      let contentStr = `<div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> ${headerInfo}</div>`;
-
-      contentStr += `<br>\n${filename}\n`;
+      let treeLines = "";
       if (filenames.length > 0) {
         for (let i = 0; i < filenames.length; i++) {
           const isLast = i === filenames.length - 1;
-          if (isLast) {
-            contentStr += `└──${filenames[i]}\n`;
-          } else {
-            contentStr += `├──${filenames[i]}\n`;
-          }
+          const connector = isLast ? "└── " : "├── ";
+          treeLines += `${connector}${filenames[i]}\n`;
         }
       } else {
-        contentStr += `└── (Empty or unreadable archive)`;
+        treeLines += "└── (Empty or unreadable archive)\n";
       }
-      infoText.innerHTML = contentStr.trimEnd().replace(/\n/g, "<br>");
+
+      const fullTree = `${zipFilename}\n${treeLines.trimEnd()}`;
+
+      infoText.innerHTML = `<div class="zip-info-header" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;position:sticky;left:0;width:100%;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> <span>${headerInfo}</span></div><div class="zip-info-tree" style="white-space:pre;font-family:monospace;margin:0;padding:0;line-height:1.35;">${escapeHtml(fullTree)}</div>`;
     }
 
     async function scanZip() {
@@ -524,7 +554,7 @@ export async function loadMediaWithProgress(item) {
           } catch (headErr) {
             if (headErr.message === "404_NOT_FOUND") {
               container.innerHTML = "";
-              if (progressOverlay) showMediaUnavailableWarning(progressOverlay, "zip");
+              if (progressOverlay) showMediaUnavailableWarning(progressOverlay, { type: "zip", filename: zipFilename, errorStatus: "404", onRetry: triggerRetry });
               if (progressOverlay) container.appendChild(progressOverlay);
               return;
             }
@@ -544,7 +574,7 @@ export async function loadMediaWithProgress(item) {
           filenames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
           renderTree();
         } else {
-          infoText.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> ${sizeStr ? sizeStr + " Archive" : filename}</div><br>(Click Download to fetch and view files)`;
+          infoText.innerHTML = `<div class="zip-info-header" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;position:sticky;left:0;width:100%;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> <span>${escapeHtml(sizeStr ? sizeStr + " Archive" : zipFilename)}</span></div><div style="text-align:center;color:#aaa;margin-top:6px;">(Click Download to fetch and view files)</div>`;
         }
 
         if (window.pawAutoDownloadZip) {
@@ -552,7 +582,7 @@ export async function loadMediaWithProgress(item) {
         }
       } catch (err) {
         console.warn("scanZip error", err);
-        infoText.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> ${filename}</div><br>(Click Download to fetch)`;
+        infoText.innerHTML = `<div class="zip-info-header" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;position:sticky;left:0;width:100%;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> <span>${escapeHtml(zipFilename)}</span></div><div style="text-align:center;color:#aaa;margin-top:6px;">(Click Download to fetch)</div>`;
         if (window.pawAutoDownloadZip) {
           startDownload();
         }
@@ -672,18 +702,19 @@ export async function loadMediaWithProgress(item) {
       e.stopPropagation();
       if (!zipBlob) return;
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(zipBlob);
-      a.download = filename;
+      const objUrl = URL.createObjectURL(zipBlob);
+      a.href = objUrl;
+      a.download = zipFilename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
     });
 
     btnView.addEventListener("click", (e) => {
       e.stopPropagation();
       if (!zipBlob) return;
-      openZipGallery(url, filename, zipBlob);
+      openZipGallery(url, zipFilename, zipBlob);
     });
 
     scanZip();
@@ -696,261 +727,228 @@ export async function loadMediaWithProgress(item) {
       return;
     }
 
-    if (progressOverlay) {
-      progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Buffering ${type === "video" ? "Video" : "Audio"}</span>`;
-    }
+    let totalSize = 0;
+
+    const updateVideoProgress = (statusText = "Buffering...") => {
+      if (!video.duration || video.buffered.length === 0) return;
+
+      let totalBufferedSeconds = 0;
+      for (let i = 0; i < video.buffered.length; i++) {
+        totalBufferedSeconds += (video.buffered.end(i) - video.buffered.start(i));
+      }
+
+      const percent = Math.min(100, Math.round((totalBufferedSeconds / video.duration) * 100));
+      const loadedBytes = totalSize ? Math.round((percent / 100) * totalSize) : 0;
+      const loadedStr = totalSize ? formatBytes(loadedBytes) : `${Math.round(totalBufferedSeconds)}s`;
+      const totalStr = totalSize ? formatBytes(totalSize) : `${Math.round(video.duration)}s`;
+
+      renderMediaProgress(progressOverlay, statusText, percent, filename, loadedStr, totalStr);
+    };
+
+    renderMediaProgress(progressOverlay, "Loading...", 0, filename, "0 B", "...");
+
     const video = document.createElement(type === "video" ? "video" : "audio");
     video.className = "post-media";
+    
     if (type === "video") {
       video.loop = true;
       video.muted = true;
+      video.defaultMuted = true;
       video.playsInline = true;
+      video.setAttribute("muted", "");
       video.setAttribute("playsinline", "");
       video.setAttribute("webkit-playsinline", "");
       video.disableRemotePlayback = true;
-      video.preload = "metadata";
+      video.preload = "auto";
     }
     video.controls = true;
 
-    let isBuffering = false;
-    let resumeTimeout = null;
-
-    video.addEventListener("waiting", () => {
-      if (video.paused && !isBuffering) return;
-      isBuffering = true;
-      if (progressOverlay) {
-        progressOverlay.innerHTML = `Buffering...<br><span style="font-size:0.9rem; font-weight:normal; color:#ccc">Buffering stream</span>`;
-        progressOverlay.style.display = "flex";
-      }
-      clearTimeout(resumeTimeout);
-      resumeTimeout = setTimeout(() => {
-        if (isBuffering && document.contains(video)) {
-          const rect = video.getBoundingClientRect();
-          const inView = rect.top < window.innerHeight && rect.bottom > 0;
-          if (inView && !video.ended) {
-            video.play().catch(() => {});
-          }
-        }
-      }, 1000);
-    });
-
-    video.addEventListener("stalled", () => {
-      if (video.paused && !isBuffering) return;
-      if (progressOverlay) {
-        progressOverlay.innerHTML = `Buffering...<br><span style="font-size:0.9rem; font-weight:normal; color:#ccc">Connecting to stream</span>`;
-        progressOverlay.style.display = "flex";
-      }
-    });
-
-    video.addEventListener("canplay", () => {
+    const hideOverlay = () => {
       if (progressOverlay) progressOverlay.style.display = "none";
+    };
+
+    // 1. Hide overlay when frames actually render and advance
+    video.addEventListener("timeupdate", () => {
+      if (video.currentTime > 0) {
+        hideOverlay();
+      }
+    });
+
+    video.addEventListener("playing", hideOverlay);
+    video.addEventListener("canplay", () => {
+      hideOverlay();
       syncCarouselClones(item);
     });
 
-    video.addEventListener("playing", () => {
-      isBuffering = false;
-      clearTimeout(resumeTimeout);
-      if (progressOverlay) progressOverlay.style.display = "none";
+    video.addEventListener("loadedmetadata", () => {
+      updateVideoProgress("Buffering...");
     });
 
-    video.addEventListener("pause", () => {
-      clearTimeout(resumeTimeout);
-    });
-
-    video.addEventListener("error", () => {
-      clearTimeout(resumeTimeout);
-      video.style.display = "none";
-      if (progressOverlay) progressOverlay.style.display = "flex";
-
-      const path = item.dataset.path;
-      if (path && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
-        let thumbUrl =
-          state.currentSite === "pawchive"
-            ? `https://img.pawchive.pw/thumbnail/data${path}`
-            : `https://img.kemono.cr/thumbnail/data${path}`;
-
-        if (progressOverlay) {
-          progressOverlay.innerHTML = `Loading Thumbnail...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Video unavailable</span>`;
-        }
-        const thumbImg = document.createElement("img");
-        thumbImg.className = "post-media";
-        thumbImg.onload = () => {
-          if (progressOverlay) progressOverlay.style.display = "none";
-        };
-        thumbImg.onerror = () => {
-          thumbImg.style.display = "none";
-          showMediaUnavailableWarning(progressOverlay, type);
-        };
-        thumbImg.src = thumbUrl;
-        item.appendChild(thumbImg);
-      } else {
-        showMediaUnavailableWarning(progressOverlay, type);
+    video.addEventListener("progress", () => {
+      if (progressOverlay && progressOverlay.style.display !== "none") {
+        updateVideoProgress("Buffering...");
       }
     });
 
-    const ext = (item.dataset.path || url).split(".").pop().toLowerCase();
-    const mimeMap = {
-      mp4: "video/mp4",
-      webm: "video/webm",
-      mov: "video/quicktime",
-      mp3: "audio/mpeg",
-      ogg: "audio/ogg",
-      wav: "audio/wav",
-      m4a: "audio/mp4",
-    };
-    const mime = mimeMap[ext];
-    if (mime) {
-      const source = document.createElement("source");
-      source.src = url;
-      source.type = mime;
-      video.appendChild(source);
-    } else {
-      video.src = url;
-    }
+    video.addEventListener("waiting", () => {
+      if (!video.paused && progressOverlay) {
+        // If we already have buffered data past the current time, nudge forward past micro-gaps
+        if (video.buffered.length > 0) {
+          const firstStart = video.buffered.start(0);
+          if (firstStart > video.currentTime && firstStart < 1.0) {
+            video.currentTime = firstStart;
+          }
+        }
+        progressOverlay.style.display = "flex";
+        updateVideoProgress("Buffering...");
+      }
+    });
+
+    let videoTimeout = setTimeout(() => {
+      const p = item.dataset.path;
+      if (video.readyState < 2 && p && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+        video.style.display = "none";
+        const thumbImg = document.createElement("img");
+        thumbImg.className = "post-media";
+        thumbImg.loading = "eager";
+        thumbImg.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${p}`;
+
+        thumbImg.onload = () => {
+          if (progressOverlay) progressOverlay.style.display = "none";
+          syncCarouselClones(item);
+        };
+        thumbImg.onerror = () => {
+          if (progressOverlay) progressOverlay.style.display = "flex";
+          showMediaUnavailableWarning(progressOverlay, { type, filename, errorStatus: "404", onRetry: triggerRetry });
+        };
+
+        item.appendChild(thumbImg);
+      }
+    }, 6000);
+
+    video.addEventListener("loadedmetadata", () => {
+      clearTimeout(videoTimeout);
+      updateVideoProgress("Buffering...");
+    });
+
+    video.addEventListener("canplay", () => {
+      clearTimeout(videoTimeout);
+      hideOverlay();
+      syncCarouselClones(item);
+    });
+
+    video.addEventListener("error", () => {
+      clearTimeout(videoTimeout);
+      video.style.display = "none";
+      const path = item.dataset.path;
+
+      // Fallback to the proxied thumbnail if the video fails to load
+      if (path && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+        const thumbImg = document.createElement("img");
+        thumbImg.className = "post-media";
+        thumbImg.loading = "eager";
+        thumbImg.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${path}`;
+
+        thumbImg.onload = () => {
+          if (progressOverlay) progressOverlay.style.display = "none";
+          syncCarouselClones(item);
+        };
+        thumbImg.onerror = () => {
+          if (progressOverlay) progressOverlay.style.display = "flex";
+          showMediaUnavailableWarning(progressOverlay, { type, filename, errorStatus: "404", onRetry: triggerRetry });
+        };
+
+        item.appendChild(thumbImg);
+        return;
+      }
+
+      if (progressOverlay) progressOverlay.style.display = "flex";
+      showMediaUnavailableWarning(progressOverlay, { type, filename, errorStatus: "404", onRetry: triggerRetry });
+    });
+
+    // 2. Set src directly on the video element (eliminates <source> deadlocks)
+    video.src = url;
 
     item.appendChild(video);
     playbackObserver.observe(video);
     return;
   }
 
-  if (item._abortController) {
-    try {
-      item._abortController.abort();
-    } catch (_) {}
+  const img = document.createElement("img");
+  img.className = "post-media";
+  
+  const isFirstCard = item.closest('.post-card') === feed.firstElementChild;
+  if (isFirstCard) {
+    img.loading = "eager";
+    img.fetchPriority = "high";
+  } else {
+    img.loading = "lazy";
+    img.decoding = "async";
   }
-  const abortController = new AbortController();
-  item._abortController = abortController;
-  const signal = abortController.signal;
 
-  try {
-    if (!url.startsWith(PROXY_URL)) {
-      throw new Error("Direct CDN URL (Bypassing fetch to prevent CORS spam)");
-    }
+  const path = item.dataset.path;
+  const isKemono = state.currentSite === "kemono";
 
-    const response = await fetch(url, { signal });
-    if (response.status === 204 || response.status === 404) {
-      throw new Error("404_NOT_FOUND");
-    }
-    if (!response.ok) {
-      throw new Error("Network response was not ok");
-    }
+  if (isKemono && path) {
+    // Progressive Loading: Load edge-cached high-quality thumbnail immediately (<300ms)
+    const thumbUrl = `${PROXY_URL}/kemono/thumbnail/data${path}`;
+    img.src = thumbUrl;
 
-    const contentLength = response.headers.get("content-length");
-    let total = 0;
-    if (contentLength) {
-      total = parseInt(contentLength, 10);
-    }
-
-    let loaded = 0;
-
-    if (total === 0) {
-      if (progressOverlay)
-        progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Unknown Size</span>`;
-      const blob = await response.blob();
-      if (signal.aborted) return;
-      attachMedia(item, blob, type);
+    img.onload = () => {
       if (progressOverlay) progressOverlay.style.display = "none";
-      return;
-    }
+      syncCarouselClones(item);
 
-    const reader = response.body.getReader();
-    const chunks = [];
-    let lastTime = performance.now();
-    let lastLoaded = 0;
-    let speedStr = "0 B/s";
+      // Attempt to upgrade to full-res file in background without blocking UI
+      if (url && url !== thumbUrl) {
+        const fullImg = new Image();
+        fullImg.src = url;
+        fullImg.onload = () => {
+          img.src = url;
+        };
+      }
+    };
 
-    while (true) {
-      if (signal.aborted) {
-        try {
-          reader.cancel();
-        } catch (_) {}
+    img.onerror = () => {
+      if (url && img.src !== url) {
+        img.src = url;
         return;
       }
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (signal.aborted) return;
+      img.style.display = "none";
+      showMediaUnavailableWarning(progressOverlay, {
+        type,
+        filename,
+        errorStatus: "404",
+        onRetry: triggerRetry,
+      });
+    };
+  } else {
+    img.src = url;
 
-      chunks.push(value);
-      loaded += value.length;
-
-      const now = performance.now();
-      if (now - lastTime >= 500) {
-        const bytesPerSec = (loaded - lastLoaded) / ((now - lastTime) / 1000);
-        speedStr = formatBytes(bytesPerSec) + "/s";
-        lastTime = now;
-        lastLoaded = loaded;
-        const percent = Math.round((loaded / total) * 100);
-        const loadedStr = formatBytes(loaded);
-        const totalStr = formatBytes(total);
-        if (progressOverlay) {
-          progressOverlay.innerHTML = `${percent}%<br><span style="font-size:1rem; font-weight:normal; color:#ccc">${loadedStr} / ${totalStr} &bull; ${speedStr}</span>`;
-        }
-      }
-    }
-
-    if (signal.aborted) return;
-    const blob = new Blob(chunks);
-    attachMedia(item, blob, type);
-    if (progressOverlay) progressOverlay.style.display = "none";
-  } catch (error) {
-    if (signal.aborted || error.name === "AbortError") {
-      return;
-    }
-
-    if (error.message === "404_NOT_FOUND") {
-      const path = item.dataset.path;
-      const showWarning = () => showMediaUnavailableWarning(progressOverlay, type);
-
-      if (path && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
-        let thumbUrl = "";
-        if (state.currentSite === "pawchive") {
-          thumbUrl = `https://img.pawchive.pw/thumbnail/data${path}`;
-        } else if (state.currentSite === "kemono") {
-          if (type !== "video") {
-            showWarning();
-            return;
-          }
-          thumbUrl = `https://img.kemono.cr/thumbnail/data${path}`;
-        }
-
-        if (progressOverlay) {
-          progressOverlay.innerHTML = `Loading Thumbnail...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Original missing</span>`;
-        }
-
-        const thumbImg = document.createElement("img");
-        thumbImg.className = "post-media";
-        thumbImg.onload = () => {
-          if (progressOverlay) progressOverlay.style.display = "none";
-        };
-        thumbImg.onerror = () => {
-          showWarning();
-        };
-
-        thumbImg.src = thumbUrl;
-        item.appendChild(thumbImg);
-        return;
-      }
-
-      showWarning();
-      return;
-    }
-
-    if (progressOverlay) {
-      progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Direct Load</span>`;
-    }
-    const img = document.createElement("img");
-    img.className = "post-media";
     img.onload = () => {
       if (progressOverlay) progressOverlay.style.display = "none";
       syncCarouselClones(item);
     };
+
     img.onerror = () => {
+      const p = item.dataset.path;
+      // If the full-res file fails or is blocked, try the thumbnail through the worker proxy
+      if (p && !img.dataset.triedThumb && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+        img.dataset.triedThumb = "true";
+        img.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${p}`;
+        return;
+      }
+
       img.style.display = "none";
-      showMediaUnavailableWarning(progressOverlay, type);
+      showMediaUnavailableWarning(progressOverlay, {
+        type,
+        filename,
+        errorStatus: "404",
+        onRetry: triggerRetry,
+      });
     };
-    img.src = url;
-    item.appendChild(img);
   }
+
+  item.appendChild(img);
 }
 
 export function attachMedia(item, blob, type) {
@@ -969,6 +967,9 @@ export function attachMedia(item, blob, type) {
     video.loop = true;
     video.muted = true;
     video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    video.setAttribute("muted", "");
     video.controls = true;
     item.appendChild(video);
     playbackObserver.observe(video);
@@ -1118,9 +1119,6 @@ export function navigateCarousel(carousel, direction, totalCount, isKey = false)
 export function createPostCard(post) {
   const card = document.createElement("div");
   card.className = "post-card";
-
-  const carousel = document.createElement("div");
-  carousel.className = "media-carousel";
 
   let allMedia = [];
   const supportedExts = [
@@ -1343,12 +1341,14 @@ export function createPostCard(post) {
   titleLink.href = postUrl;
   titleLink.target = "_blank";
   titleLink.rel = "noopener noreferrer";
-  titleLink.innerHTML = post.title || "Untitled";
+  titleLink.textContent = post.title || "Untitled";
   title.appendChild(titleLink);
 
   const content = document.createElement("div");
   content.className = "post-content";
-  content.style.paddingBottom = "80px";
+  if (window.matchMedia("(max-width: 768px)").matches) {
+    content.style.paddingBottom = "120px";
+  }
 
   if (cleanContent) {
     cleanContent = cleanContent.replace(/<a /gi, '<a target="_blank" rel="noopener noreferrer" ');
@@ -1410,7 +1410,9 @@ export function createPostCard(post) {
       progressOverlay.className = "media-progress";
       item.appendChild(progressOverlay);
 
-      progressOverlay.innerHTML = `Loading...<br><span style="font-size:1rem; font-weight:normal; color:#ccc">Connecting...</span>`;
+      const mediaName = mediaObj.name || mediaPath.split("/").pop() || "media";
+      renderMediaProgress(progressOverlay, "Loading...", 0, mediaName, "0 B", "...");
+
       carousel.appendChild(item);
       mediaObserver.observe(item);
     });
@@ -1502,7 +1504,8 @@ export function createPostCard(post) {
   card.addEventListener("click", (e) => {
     if (e.target.tagName.toLowerCase() === "a" || e.target.closest("a")) return;
     if (e.target.tagName.toLowerCase() === "button" || e.target.closest("button")) return;
-    if (e.target.tagName.toLowerCase() === "video") return;
+    if (e.target.tagName.toLowerCase() === "video" || e.target.tagName.toLowerCase() === "audio") return;
+    if (e.target.closest(".zip-info-text")) return;
 
     if (card.dataset.isDragging === "true") {
       card.dataset.isDragging = "false";
@@ -1574,8 +1577,28 @@ export async function fetchPosts() {
     const url = isSinglePageFeed
       ? state.currentFeedEndpoint
       : `${state.currentFeedEndpoint}${separator}o=${state.offset}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("Failed to fetch: " + res.status + " " + res.statusText);
+    let res;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      try {
+        res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.status === 429 && attempt === 0) {
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+        break;
+      } catch (e) {
+        clearTimeout(timeoutId);
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        throw e;
+      }
+    }
+    if (!res || !res.ok) throw new Error("Failed to fetch: " + (res ? `${res.status} ${res.statusText}` : "timeout"));
     let posts = await res.json();
     if (!Array.isArray(posts)) {
       posts = posts.posts || posts.announcements || posts.dms || posts.fancards || [];
@@ -1591,6 +1614,7 @@ export async function fetchPosts() {
         feedObserver.unobserve(currentCards[currentCards.length - 1]);
       }
 
+      let addedCount = 0;
       posts.forEach((post) => {
         if (!post.service) {
           const match = state.currentFeedEndpoint.match(/\/api\/v1\/([^\/]+)\/user\/([^\/]+)/);
@@ -1695,6 +1719,7 @@ export async function fetchPosts() {
           flagObserver.observe(card);
 
           feed.appendChild(card);
+          addedCount++;
         }
       });
 
@@ -1703,8 +1728,9 @@ export async function fetchPosts() {
       const newCards = feed.querySelectorAll(".post-card");
       if (newCards.length > 0) {
         feedObserver.observe(newCards[newCards.length - 1]);
-      } else if (state.hasMore) {
-        setTimeout(() => fetchPosts(), 100);
+      }
+      if (addedCount === 0 && state.hasMore) {
+        setTimeout(() => fetchPosts(), 50);
       }
     }
   } catch (error) {

@@ -4,7 +4,7 @@
   padding: 0;
 }
 
-body {
+html, body {
   background-color: #070707;
   color: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -178,6 +178,7 @@ textarea,
   color: white;
   font-weight: bold;
   cursor: pointer;
+  white-space: nowrap;
   transition: background 0.2s;
 }
 
@@ -203,6 +204,17 @@ textarea,
     scrollbar-width: none;
   }
 
+  #nav #nav-back,
+  #nav #nav-info,
+  #nav #nav-settings,
+  #nav #nav-home {
+    width: 42px;
+    height: 42px;
+    border-radius: 21px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   #nav #nav-home {
     top: auto;
     bottom: 20px;
@@ -212,7 +224,7 @@ textarea,
 
   #nav #nav-back {
     top: auto;
-    bottom: 65px;
+    bottom: 74px;
     right: 20px;
     left: auto;
   }
@@ -226,7 +238,7 @@ textarea,
 
   #nav #nav-info {
     top: auto;
-    bottom: 65px;
+    bottom: 74px;
     left: 20px;
     right: auto;
   }
@@ -249,6 +261,7 @@ textarea,
   font-size: 3rem;
   margin-bottom: 10px;
   background: -webkit-linear-gradient(#fff, #aaa);
+  background: linear-gradient(#fff, #aaa);
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -595,16 +608,6 @@ audio.post-media {
   justify-content: center;
 }
 
-.post-text-card .post-title {
-  font-size: 1.25rem;
-  font-weight: bold;
-  color: #fff;
-  margin-bottom: 15px;
-  word-wrap: break-word;
-  text-align: center;
-  flex-shrink: 0;
-}
-
 .post-text-card .post-content {
   color: #ddd;
   font-size: 1.05rem;
@@ -714,20 +717,44 @@ body.nav-visible .carousel-indicator {
 }
 
 .post-title {
-  font-size: 1rem;
+  font-size: 1.5rem;
   margin-bottom: 8px;
   word-wrap: break-word;
   text-align: left;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.post-text-card .post-title {
+  font-size: 1.25rem;
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 15px;
+  word-wrap: break-word;
+  text-align: center;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .post-content {
   display: block;
-  padding-bottom: 80px;
   color: #ddd;
   font-size: 1rem;
   line-height: 1.4;
   word-wrap: break-word;
   overflow-wrap: break-word;
+}
+
+@media (max-width: 768px) {
+  .post-content {
+    padding-bottom: 95px;
+  }
 }
 
 .loading {
@@ -760,6 +787,7 @@ body.nav-visible .carousel-indicator {
   z-index: 50;
   text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
   font-family: monospace;
+  pointer-events: none !important;
 }
 
 #nav-back.hidden,
@@ -918,10 +946,6 @@ body.nav-visible .carousel-indicator {
   margin: 0 0 10px 0;
 }
 
-.post-content p:last-child {
-  margin: 0;
-}
-
 #nav:not(.auto-hide) button,
 #nav:not(.auto-hide) a,
 #nav:not(.auto-hide) #nav-tabs {
@@ -964,6 +988,74 @@ body.no-animations * {
 
 .zip-action-btn:hover {
   background: rgba(0, 0, 0, 0.8);
+}
+
+.zip-info-text {
+  color: #fff;
+  font-family: monospace;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  width: fit-content;
+  max-width: 100%;
+  max-height: 40vh;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  font-size: 0.9rem;
+  text-align: left;
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+.zip-info-text::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.zip-info-text::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.zip-info-text::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+}
+
+.zip-info-text::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.zip-info-header {
+  position: sticky;
+  left: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.zip-info-tree {
+  white-space: pre !important;
+  font-family: monospace;
+  margin: 0;
+  padding: 0;
+  line-height: 1.35;
+}
+
+@media (max-width: 600px), (max-height: 500px) {
+  .zip-info-text {
+    max-width: calc(100vw - 24px);
+    max-height: 42vh;
+    padding: 12px;
+    font-size: 0.85rem;
+  }
 }
 
 .feed-creators-grid {
@@ -1038,6 +1130,18 @@ body.no-animations * {
   justify-content: center;
 }
 
+#zip-progress-text {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  gap: 8px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 1.1rem;
+}
+
 #zip-content img,
 #zip-content video {
   max-width: 100%;
@@ -1053,7 +1157,7 @@ body.no-animations * {
   bottom: 0;
   width: 100vw;
   height: 100dvh;
-  z-index: 2010;
+  z-index: 2020;
   pointer-events: none;
   transition:
     opacity 0.3s ease-in-out,
@@ -1084,6 +1188,9 @@ body.no-animations * {
     transform 0.3s ease-in-out,
     visibility 0.3s;
   pointer-events: auto;
+  z-index: 2030;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #close-zip-viewer:hover,
@@ -1130,9 +1237,16 @@ body.no-animations * {
 }
 
 @media (max-width: 768px), (max-height: 500px) {
+  #close-zip-viewer,
+  #zip-settings-viewer,
+  #zip-home-viewer {
+    width: 42px;
+    height: 42px;
+  }
+
   #close-zip-viewer {
     top: auto;
-    bottom: 65px;
+    bottom: 75px;
     right: 20px;
     left: auto;
   }
@@ -1180,21 +1294,28 @@ body.no-animations * {
   padding: 5px 12px;
   border-radius: 15px;
   font-size: 0.9rem;
-  transition: top 0.3s ease-in-out;
+  transition: transform 0.3s ease-in-out;
   margin: 0;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 @media (min-width: 769px) {
   #zip-nav.visible ~ #zip-indicator {
-    top: 70px;
+    transform: translateY(48px);
   }
 }
 
 @media (max-width: 768px), (max-height: 500px) {
   #zip-indicator {
-    top: 15px;
-    right: 15px;
-    transition: none;
+    top: 15px !important;
+    right: 15px !important;
+    transform: none !important;
+  }
+  #zip-nav.visible ~ #zip-indicator {
+    transform: none !important;
   }
 }
 
@@ -1203,7 +1324,9 @@ body.no-animations * {
     justify-content: center;
     justify-content: safe center;
   }
+}
 
+@media (orientation: landscape) and (max-height: 500px) {
   body.nav-visible .carousel-indicator {
     transform: translateY(0);
   }

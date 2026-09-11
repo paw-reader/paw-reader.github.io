@@ -1,0 +1,1237 @@
+import { PROXY_URL, state } from "./state.js";
+import { zipViewer, zipTitle, zipContent, zipIndicator, setZipNavVisible } from "./zip.js";
+import { formatBytes, showMediaUnavailableWarning, renderMediaProgress, renderArchiveProgress } from "./utils.js";
+import { attachMedia, syncCarouselClones } from "./feed.js";
+import { createExternalAbortSignal, renderArchiveCardUI, escapeHtml, getMimeType, isImageOrVideo } from "./externalGalleries.js";
+
+export const megaFolderCache = new Map();
+export const megaBlobCache = new Map();
+const MAX_BLOB_CACHE_ITEMS = 25;
+
+export function cacheMegaBlob(key, blob) {
+  if (megaBlobCache.size >= MAX_BLOB_CACHE_ITEMS) {
+    const oldestKey = megaBlobCache.keys().next().value;
+    if (oldestKey) {
+      megaBlobCache.delete(oldestKey);
+    }
+  }
+  megaBlobCache.set(key, blob);
+}
+
+export function base64urlToBytes(str) {
+  str = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (str.length % 4) str += "=";
+  const binary = atob(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+export function unmergeKeyMac(key) {
+  const k = new Uint8Array(32);
+  k.set(key);
+  for (let i = 0; i < 16; i++) {
+    k[i] = key[i] ^ key[16 + i];
+  }
+  return k;
+}
+
+const ZERO_IV = new Uint8Array(16);
+
+export function decryptAttributes(encAttrBase64, rawNodeKey) {
+  try {
+    if (!window.aesjs) return null;
+    const encBytes = base64urlToBytes(encAttrBase64);
+    const padLen = (16 - (encBytes.length % 16)) % 16;
+    let paddedBytes = encBytes;
+    if (padLen > 0) {
+      paddedBytes = new Uint8Array(encBytes.length + padLen);
+      paddedBytes.set(encBytes);
+    }
+
+    const fileKey = unmergeKeyMac(rawNodeKey).subarray(0, 16);
+    const aesCbc = new window.aesjs.ModeOfOperation.cbc(fileKey, ZERO_IV);
+    const decBytes = aesCbc.decrypt(paddedBytes);
+    let end = 0;
+    while (end < decBytes.length && decBytes[end] !== 0) end++;
+    const str = new TextDecoder().decode(new Uint8Array(decBytes.slice(0, end)));
+    if (str.startsWith('MEGA{"')) {
+      return JSON.parse(str.slice(4));
+    }
+  } catch (e) {}
+  return null;
+}
+
+export function decryptNodeKey(kStr, folderKeyBytes, encAttr, cipherInstance = null) {
+  if (!window.aesjs) return null;
+  const aes = cipherInstance || (
+    folderKeyBytes.length === 32
+      ? new window.aesjs.ModeOfOperation.ecb(Array.from(unmergeKeyMac(folderKeyBytes).subarray(0, 16)))
+      : new window.aesjs.ModeOfOperation.ecb(Array.from(folderKeyBytes.subarray(0, 16)))
+  );
+
+  const parts = kStr.split("/").map((p) => p.split(":"));
+  for (const part of parts) {
+    const rawEncKeyStr = part[part.length - 1];
+    try {
+      const encKeyBytes = base64urlToBytes(rawEncKeyStr);
+      let rawKey = null;
+      if (encKeyBytes.length === 32 || encKeyBytes.length === 16) {
+        rawKey = new Uint8Array(aes.decrypt(Array.from(encKeyBytes)));
+      } else {
+        continue;
+      }
+      if (rawKey && encAttr) {
+        const attrs = decryptAttributes(encAttr, rawKey);
+        if (attrs && attrs.n) {
+          return { rawKey, attrs };
+        }
+      } else if (rawKey) {
+        return { rawKey, attrs: null };
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
+export async function decryptAllMegaNodes(nodes, rootFolderKeyBytes) {
+  const nodeKeyMap = new Map();
+  const decryptedNodes = new Map();
+
+  const initialKey = rootFolderKeyBytes.length === 32
+    ? unmergeKeyMac(rootFolderKeyBytes).subarray(0, 16)
+    : rootFolderKeyBytes.subarray(0, 16);
+
+  const availableKeys = [initialKey];
+  const cipherMap = new Map();
+  function getCipher(keyBytes) {
+    let c = cipherMap.get(keyBytes);
+    if (!c) {
+      const aesKey = keyBytes.length === 32 ? unmergeKeyMac(keyBytes).subarray(0, 16) : keyBytes.subarray(0, 16);
+      c = new window.aesjs.ModeOfOperation.ecb(Array.from(aesKey));
+      cipherMap.set(keyBytes, c);
+    }
+    return c;
+  }
+
+  let changed = true;
+  let passes = 0;
+  let lastYield = performance.now();
+
+  while (changed && passes < 10) {
+    changed = false;
+    passes++;
+
+    for (const node of nodes) {
+      if (decryptedNodes.has(node.h) || !node.k || !node.a) continue;
+
+      if (performance.now() - lastYield > 12) {
+        await new Promise((r) => setTimeout(r, 0));
+        lastYield = performance.now();
+      }
+
+      const keysToTry = [];
+      if (node.p && nodeKeyMap.has(node.p)) keysToTry.push(nodeKeyMap.get(node.p));
+      if (!keysToTry.includes(initialKey)) keysToTry.push(initialKey);
+      if (passes > 2) {
+        for (const k of availableKeys) if (!keysToTry.includes(k)) keysToTry.push(k);
+      }
+
+      for (const k of keysToTry) {
+        const res = decryptNodeKey(node.k, k, node.a, getCipher(k));
+        if (res && res.attrs && res.attrs.n) {
+          const name = res.attrs.n;
+          const isFolder = node.t === 1;
+          const folderAesKey = res.rawKey.length === 32
+            ? unmergeKeyMac(res.rawKey).subarray(0, 16)
+            : res.rawKey.subarray(0, 16);
+
+          if (isFolder) {
+            nodeKeyMap.set(node.h, folderAesKey);
+            if (!availableKeys.includes(folderAesKey)) availableKeys.push(folderAesKey);
+          }
+
+          decryptedNodes.set(node.h, {
+            node,
+            h: node.h,
+            p: node.p,
+            name,
+            rawKey: res.rawKey,
+            isFolder,
+            size: node.s || 0
+          });
+
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  return decryptedNodes;
+}
+
+export function formatMegaFileTree(decryptedNodes) {
+  const childrenMap = new Map();
+  const rootNodes = [];
+
+  for (const node of decryptedNodes.values()) {
+    const parentId = node.p;
+    if (!parentId || !decryptedNodes.has(parentId)) {
+      rootNodes.push(node);
+    } else {
+      if (!childrenMap.has(parentId)) childrenMap.set(parentId, []);
+      childrenMap.get(parentId).push(node);
+    }
+  }
+
+  let output = "";
+
+  function printNode(nodeObj, prefix, isLast) {
+    const isFolder = nodeObj.isFolder;
+    const connector = isLast ? "└── " : "├── ";
+    const childPrefix = prefix + (isLast ? "    " : "│   ");
+
+    if (isFolder) {
+      output += prefix + connector + nodeObj.name + "/\n";
+      const children = childrenMap.get(nodeObj.h) || [];
+      children.sort((a, b) => {
+        if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+      });
+      for (let i = 0; i < children.length; i++) {
+        printNode(children[i], childPrefix, i === children.length - 1);
+      }
+    } else {
+      const sizeStr = nodeObj.size > 0 ? ` (${formatBytes(nodeObj.size)})` : "";
+      output += prefix + connector + nodeObj.name + sizeStr + "\n";
+    }
+  }
+
+  let headerName = "";
+  let startNodes = rootNodes;
+  if (rootNodes.length === 1 && rootNodes[0].isFolder) {
+    headerName = rootNodes[0].name;
+    startNodes = childrenMap.get(rootNodes[0].h) || [];
+  }
+
+  startNodes.sort((a, b) => {
+    if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+  });
+
+  for (let i = 0; i < startNodes.length; i++) {
+    printNode(startNodes[i], "", i === startNodes.length - 1);
+  }
+
+  return { headerName, tree: output };
+}
+
+export async function megaApiRequest(queryStr, bodyJson, signal, maxRetries = 3) {
+  const directUrl = `https://g.api.mega.co.nz/cs?${queryStr}`;
+  const proxyUrl = `${PROXY_URL}/mega/api?${queryStr}`;
+  let lastData = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (signal && signal.aborted) throw new Error("Aborted");
+    const targetUrl = attempt === 0 ? proxyUrl : attempt === 1 ? directUrl : proxyUrl;
+
+    try {
+      const res = await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bodyJson),
+        signal
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const errCode = Array.isArray(data) ? data[0] : data;
+
+        if (errCode === -3) {
+          lastData = data;
+          if (attempt < maxRetries) {
+            const delay = Math.min(2000, 350 * Math.pow(2, attempt));
+            console.warn(`[Mega] Received -3 (EAGAIN), retrying in ${delay}ms...`);
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+        } else {
+          return data;
+        }
+      }
+    } catch (e) {
+      if (signal && signal.aborted) throw e;
+      console.warn(`[Mega] API attempt ${attempt + 1} to ${targetUrl} failed:`, e.message);
+    }
+
+    if (attempt < maxRetries) {
+      await new Promise((r) => setTimeout(r, 350));
+    }
+  }
+
+  if (lastData) return lastData;
+  throw new Error("Mega API request failed after retries");
+}
+
+export async function fetchMegaStorageStream(dlUrl, signal) {
+  try {
+    const res = await fetch(dlUrl, { signal });
+    if (res.ok) return res;
+  } catch (e) {
+    if (signal && signal.aborted) throw e;
+  }
+  const res = await fetch(`${PROXY_URL}/proxy?url=${encodeURIComponent(dlUrl)}`, { signal });
+  if (!res.ok) throw new Error(`Failed to download Mega file (HTTP ${res.status})`);
+  return res;
+}
+
+function decryptMegaInWorker(dlUrl, proxyUrl, rawNodeKey, totalBytes, onProgress, signal) {
+  return new Promise((resolve, reject) => {
+    const workerScript = `
+      self.importScripts('https://cdn.jsdelivr.net/npm/aes-js@3.1.2/index.min.js');
+
+      function unmergeKeyMac(key) {
+        const k = new Uint8Array(32);
+        k.set(key);
+        for (let i = 0; i < 16; i++) {
+          k[i] = key[i] ^ key[16 + i];
+        }
+        return k;
+      }
+
+      self.onmessage = async function(e) {
+        const { dlUrl, proxyUrl, rawKeyBytes, totalBytes } = e.data;
+        try {
+          let res;
+          try {
+            res = await fetch(dlUrl);
+            if (!res.ok) throw new Error("Direct download failed");
+          } catch (_) {
+            res = await fetch(proxyUrl);
+          }
+          if (!res.ok) throw new Error("Download failed: HTTP " + res.status);
+
+          const rawNodeKey = new Uint8Array(rawKeyBytes);
+          const fileKey = unmergeKeyMac(rawNodeKey).subarray(0, 16);
+          const counterBytes = new Uint8Array(16);
+          counterBytes.set(rawNodeKey.subarray(16, 24), 0);
+
+          const counter = new self.aesjs.Counter(counterBytes);
+          const aesCtr = new self.aesjs.ModeOfOperation.ctr(Array.from(fileKey), counter);
+
+          const contentLength = parseInt(res.headers.get("content-length") || "0", 10);
+          const finalTotal = totalBytes || contentLength || 0;
+
+          const reader = res.body.getReader();
+          const decChunks = [];
+          let received = 0;
+          let lastProgress = 0;
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const decChunk = aesCtr.decrypt(value);
+            decChunks.push(decChunk);
+            received += value.length;
+
+            const now = performance.now();
+            if (now - lastProgress > 80 || (finalTotal > 0 && received === finalTotal)) {
+              lastProgress = now;
+              self.postMessage({ type: 'progress', loaded: received, total: finalTotal });
+            }
+          }
+
+          const fullDec = new Uint8Array(received);
+          let offset = 0;
+          for (const c of decChunks) {
+            fullDec.set(c, offset);
+            offset += c.length;
+          }
+
+          self.postMessage({ type: 'done', buffer: fullDec.buffer }, [fullDec.buffer]);
+        } catch (err) {
+          self.postMessage({ type: 'error', message: err.message });
+        }
+      };
+    `;
+
+    const blob = new Blob([workerScript], { type: "application/javascript" });
+    const workerUrl = URL.createObjectURL(blob);
+    const worker = new Worker(workerUrl);
+
+    const cleanup = () => {
+      worker.terminate();
+      URL.revokeObjectURL(workerUrl);
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        cleanup();
+        return reject(new DOMException("Aborted", "AbortError"));
+      }
+      signal.addEventListener("abort", () => {
+        cleanup();
+        reject(new DOMException("Aborted", "AbortError"));
+      });
+    }
+
+    worker.onmessage = (e) => {
+      const data = e.data;
+      if (data.type === "progress") {
+        if (onProgress) onProgress(data.loaded, data.total);
+      } else if (data.type === "done") {
+        cleanup();
+        resolve(data.buffer);
+      } else if (data.type === "error") {
+        cleanup();
+        reject(new Error(data.message || "Decryption failed"));
+      }
+    };
+
+    worker.onerror = (err) => {
+      cleanup();
+      reject(err);
+    };
+
+    worker.postMessage({
+      dlUrl,
+      proxyUrl,
+      rawKeyBytes: Array.from(rawNodeKey),
+      totalBytes
+    });
+  });
+}
+
+export async function downloadAndDecryptMegaPayload(dlUrl, rawNodeKey, filename, onProgress, signal, knownSize = 0) {
+  if (typeof window !== "undefined" && window.crypto && window.crypto.subtle) {
+    const fileRes = await fetchMegaStorageStream(dlUrl, signal);
+    const totalBytes = knownSize || parseInt(fileRes.headers.get("content-length") || "0", 10);
+    const fileKey = unmergeKeyMac(rawNodeKey).subarray(0, 16);
+    const counterBytes = new Uint8Array(16);
+    counterBytes.set(rawNodeKey.subarray(16, 24), 0);
+
+    const reader = fileRes.body.getReader();
+    const chunks = [];
+    let received = 0;
+    let lastProgressTime = 0;
+
+    const onAbort = () => {
+      try { reader.cancel(); } catch (_) {}
+    };
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+        throw new Error("Aborted");
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    try {
+      while (true) {
+        if (signal && signal.aborted) throw new Error("Aborted");
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+
+        const now = performance.now();
+        if (onProgress && (now - lastProgressTime > 80 || (totalBytes > 0 && received === totalBytes))) {
+          lastProgressTime = now;
+          onProgress(received, totalBytes);
+        }
+      }
+    } finally {
+      if (signal) signal.removeEventListener("abort", onAbort);
+    }
+
+    const fullEnc = new Uint8Array(received);
+    let offset = 0;
+    while (chunks.length > 0) {
+      const c = chunks.shift();
+      fullEnc.set(c, offset);
+      offset += c.length;
+    }
+
+    const cryptoKey = await window.crypto.subtle.importKey(
+      "raw",
+      fileKey,
+      { name: "AES-CTR" },
+      false,
+      ["decrypt"]
+    );
+    const decBuffer = await window.crypto.subtle.decrypt(
+      { name: "AES-CTR", counter: counterBytes, length: 64 },
+      cryptoKey,
+      fullEnc
+    );
+    return new Blob([decBuffer], { type: getMimeType(filename) });
+  }
+
+  const proxyUrl = `${PROXY_URL}/proxy?url=${encodeURIComponent(dlUrl)}`;
+  const decBuffer = await decryptMegaInWorker(dlUrl, proxyUrl, rawNodeKey, knownSize, onProgress, signal);
+  return new Blob([decBuffer], { type: getMimeType(filename) });
+}
+
+export function isMegaUrl(url) {
+  return /https?:\/\/(?:www\.)?mega\.(?:nz|co\.nz|io)\/(?:folder\/[a-zA-Z0-9_-]+[^#]*#[a-zA-Z0-9_-]+|file\/[a-zA-Z0-9_-]+[^#]*#[a-zA-Z0-9_-]+|#F![a-zA-Z0-9_-]+![a-zA-Z0-9_-]+|#![a-zA-Z0-9_-]+![a-zA-Z0-9_-]+)/i.test(url);
+}
+
+export function parseMegaUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    const folderMatch = url.pathname.match(/\/folder\/([a-zA-Z0-9_-]+)/);
+    if (folderMatch && url.hash) {
+      const key = url.hash.substring(1).split("/")[0];
+      return { type: "folder", id: folderMatch[1], key };
+    }
+    const fileMatch = url.pathname.match(/\/file\/([a-zA-Z0-9_-]+)/);
+    if (fileMatch && url.hash) {
+      const key = url.hash.substring(1).split("/")[0];
+      return { type: "file", id: fileMatch[1], key };
+    }
+    if (url.hash.startsWith("#F!")) {
+      const parts = url.hash.split("!");
+      return { type: "folder", id: parts[1], key: parts[2] };
+    }
+    if (url.hash.startsWith("#!")) {
+      const parts = url.hash.split("!");
+      return { type: "file", id: parts[1], key: parts[2] };
+    }
+  } catch (e) {}
+  return null;
+}
+
+export async function handleMegaSingleFileEmbed(item, parsed, progressOverlay, postTitle, fallbackName, signal) {
+  try {
+    const blobKey = parsed.id + "#" + parsed.key;
+    if (megaBlobCache.has(blobKey)) {
+      const blob = megaBlobCache.get(blobKey);
+      const isVideo = blob.type.startsWith("video/");
+      attachMedia(item, blob, isVideo ? "video" : "image");
+      if (progressOverlay) progressOverlay.style.display = "none";
+      syncCarouselClones(item);
+      return;
+    }
+
+    if (progressOverlay) {
+      progressOverlay.style.display = "flex";
+      renderMediaProgress(progressOverlay, "Loading...", null, fallbackName || "Mega File", "Connecting...", "");
+    }
+
+    const data = await megaApiRequest(`id=${Date.now()}`, [{ a: "g", g: 1, ssl: 2, p: parsed.id }], signal);
+    const megaErrCode = Array.isArray(data) ? data[0] : data;
+    if (typeof megaErrCode === "number" && megaErrCode < 0) {
+      throw new Error(`Mega error ${megaErrCode}`);
+    }
+    if (!Array.isArray(data) || !data[0] || !data[0].g) {
+      throw new Error("Mega file unavailable");
+    }
+
+    const downloadUrl = data[0].g;
+    const rawKey = base64urlToBytes(parsed.key);
+    let filename = fallbackName;
+    if (data[0].at) {
+      const attrs = decryptAttributes(data[0].at, rawKey);
+      if (attrs && attrs.n) filename = attrs.n;
+    }
+
+    const totalSize = data[0].s || 0;
+    const isVideo = ["mp4", "webm"].includes(filename.split(".").pop().toLowerCase());
+    const isImage = isImageOrVideo(filename) && !isVideo;
+
+    if (isImage || isVideo) {
+      if (progressOverlay) {
+        renderMediaProgress(
+          progressOverlay,
+          "Loading...",
+          0,
+          filename,
+          "0 B",
+          totalSize > 0 ? formatBytes(totalSize) : "..."
+        );
+      }
+      const blob = await downloadAndDecryptMegaPayload(
+        downloadUrl,
+        rawKey,
+        filename,
+        (loaded, total) => {
+          if (progressOverlay) {
+            const pct = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : null;
+            renderMediaProgress(
+              progressOverlay,
+              "Loading...",
+              pct,
+              filename,
+              formatBytes(loaded),
+              total > 0 ? formatBytes(total) : ""
+            );
+          }
+        },
+        signal,
+        totalSize
+      );
+      if (signal.aborted) return;
+      cacheMegaBlob(blobKey, blob);
+      attachMedia(item, blob, isVideo ? "video" : "image");
+      if (progressOverlay) progressOverlay.style.display = "none";
+      syncCarouselClones(item);
+    } else {
+      if (progressOverlay) progressOverlay.style.display = "none";
+      const sizeStr = data[0].s ? formatBytes(data[0].s) : "";
+      renderArchiveCardUI(item, item.dataset.url, "mega", postTitle, filename, signal, {
+        totalSize: data[0].s || 0,
+        fileCount: 1,
+        tree: `└── ${filename} (${sizeStr})`
+      });
+    }
+  } catch (err) {
+    if (signal.aborted) return;
+    console.error("[Mega] handleMegaSingleFileEmbed error:", err);
+    if (progressOverlay) {
+      showMediaUnavailableWarning(progressOverlay, {
+        type: "media",
+        filename: fallbackName || "Mega File",
+        errorStatus: "404",
+        message: err.message || "Failed to load Mega file",
+        onRetry: () => handleMegaSingleFileEmbed(item, parsed, progressOverlay, postTitle, fallbackName, signal)
+      });
+    }
+  }
+}
+
+export async function downloadAndAttachSingleMegaFile(item, folderId, singleFile, isVideo, progressOverlay, signal) {
+  try {
+    const blobKey = folderId + "/" + singleFile.node.h;
+    const totalSize = singleFile.size || singleFile.node?.s || 0;
+    if (progressOverlay) {
+      progressOverlay.style.display = "flex";
+      renderMediaProgress(
+        progressOverlay,
+        "Loading...",
+        0,
+        singleFile.name,
+        "0 B",
+        totalSize > 0 ? formatBytes(totalSize) : "..."
+      );
+    }
+
+    const dlRes = await megaApiRequest(`id=${Date.now()}&n=${folderId}`, [{ a: "g", g: 1, ssl: 2, n: singleFile.node.h }], signal);
+    const dlUrl = dlRes[0]?.g;
+    if (!dlUrl) throw new Error("Failed to get download URL from Mega");
+
+    const blob = await downloadAndDecryptMegaPayload(
+      dlUrl,
+      singleFile.rawKey,
+      singleFile.name,
+      (loaded, total) => {
+        if (progressOverlay) {
+          const pct = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : null;
+          renderMediaProgress(
+            progressOverlay,
+            "Loading...",
+            pct,
+            singleFile.name,
+            formatBytes(loaded),
+            total > 0 ? formatBytes(total) : ""
+          );
+        }
+      },
+      signal,
+      totalSize
+    );
+
+    if (signal.aborted) return;
+    cacheMegaBlob(blobKey, blob);
+    attachMedia(item, blob, isVideo ? "video" : "image");
+    if (progressOverlay) progressOverlay.style.display = "none";
+    syncCarouselClones(item);
+  } catch (err) {
+    if (signal.aborted) return;
+    console.error("[Mega] downloadAndAttachSingleMegaFile error:", err);
+    if (progressOverlay) {
+      showMediaUnavailableWarning(progressOverlay, {
+        type: isVideo ? "video" : "image",
+        filename: singleFile.name,
+        errorStatus: "404",
+        message: err.message || "Failed to load Mega file",
+        onRetry: () => downloadAndAttachSingleMegaFile(item, folderId, singleFile, isVideo, progressOverlay, signal)
+      });
+    }
+  }
+}
+
+export async function handleMegaFolderEmbed(item, parsed, progressOverlay, postTitle, fallbackName, signal) {
+  try {
+    const cacheKey = parsed.id + "#" + parsed.key;
+
+    if (megaFolderCache.has(cacheKey)) {
+      const cached = megaFolderCache.get(cacheKey);
+      if (progressOverlay) progressOverlay.style.display = "none";
+      if (cached.singleFile) {
+        const singleFile = cached.singleFile;
+        const isVideo = ["mp4", "webm"].includes(singleFile.name.split(".").pop().toLowerCase());
+        const blobKey = parsed.id + "/" + singleFile.node.h;
+        if (megaBlobCache.has(blobKey)) {
+          attachMedia(item, megaBlobCache.get(blobKey), isVideo ? "video" : "image");
+          syncCarouselClones(item);
+          return;
+        }
+        await downloadAndAttachSingleMegaFile(item, parsed.id, singleFile, isVideo, progressOverlay, signal);
+        return;
+      } else {
+        renderArchiveCardUI(item, item.dataset.url, "mega", postTitle, cached.archiveName, signal, cached.details);
+        return;
+      }
+    }
+
+    if (progressOverlay) {
+      progressOverlay.style.display = "flex";
+      renderMediaProgress(progressOverlay, "Loading...", null, fallbackName || "Mega Folder", "Connecting...", "");
+    }
+
+    const folderKeyBytes = base64urlToBytes(parsed.key);
+    const data = await megaApiRequest(`id=${Date.now()}&n=${parsed.id}`, [{ a: "f", c: 1, r: 1 }], signal);
+
+    const megaErrCode = Array.isArray(data) ? data[0] : data;
+    if (typeof megaErrCode === "number" && megaErrCode < 0) {
+      const MEGA_ERRORS = {
+        "-2": "Invalid folder ID / arguments",
+        "-3": "Mega server temporarily congested — please try again",
+        "-9": "Folder not found or link has expired",
+        "-11": "Access denied",
+        "-16": "Decryption key mismatch",
+        "-18": "Blocked by Mega",
+        "-509": "Bandwidth quota exceeded — try again later"
+      };
+      throw new Error(`Mega error ${megaErrCode}: ${MEGA_ERRORS[String(megaErrCode)] || "Temporary Mega issue"}`);
+    }
+    if (!Array.isArray(data) || !data[0] || !data[0].f) {
+      throw new Error("Invalid Mega folder response");
+    }
+
+    const decryptedNodes = await decryptAllMegaNodes(data[0].f, folderKeyBytes);
+
+    const mediaFiles = [];
+    for (const n of decryptedNodes.values()) {
+      if (!n.isFolder && isImageOrVideo(n.name)) {
+        mediaFiles.push(n);
+      }
+    }
+
+    const { headerName, tree } = formatMegaFileTree(decryptedNodes);
+    let totalSize = 0;
+    for (const n of decryptedNodes.values()) {
+      if (!n.isFolder) totalSize += (n.size || 0);
+    }
+    const archiveName = headerName || fallbackName || "Mega Archive";
+
+    megaFolderCache.set(cacheKey, {
+      decryptedNodes,
+      archiveName,
+      details: {
+        totalSize,
+        fileCount: mediaFiles.length || decryptedNodes.size,
+        tree
+      },
+      mediaFiles,
+      singleFile: mediaFiles.length === 1 ? mediaFiles[0] : null
+    });
+
+    if (mediaFiles.length === 1) {
+      const singleFile = mediaFiles[0];
+      const isVideo = ["mp4", "webm"].includes(singleFile.name.split(".").pop().toLowerCase());
+      const blobKey = parsed.id + "/" + singleFile.node.h;
+
+      if (megaBlobCache.has(blobKey)) {
+        attachMedia(item, megaBlobCache.get(blobKey), isVideo ? "video" : "image");
+        if (progressOverlay) progressOverlay.style.display = "none";
+        syncCarouselClones(item);
+        return;
+      }
+
+      await downloadAndAttachSingleMegaFile(item, parsed.id, singleFile, isVideo, progressOverlay, signal);
+      return;
+    }
+
+    if (progressOverlay) progressOverlay.style.display = "none";
+
+    renderArchiveCardUI(item, item.dataset.url, "mega", postTitle, archiveName, signal, {
+      totalSize,
+      fileCount: mediaFiles.length || decryptedNodes.size,
+      tree
+    });
+
+  } catch (err) {
+    if (signal.aborted) return;
+    console.error("[Mega] handleMegaFolderEmbed error:", err);
+    if (progressOverlay) {
+      showMediaUnavailableWarning(progressOverlay, {
+        type: "zip",
+        filename: fallbackName || "Mega Folder",
+        errorStatus: "404",
+        message: err.message || "Failed to load Mega folder",
+        onRetry: () => handleMegaFolderEmbed(item, parsed, progressOverlay, postTitle, fallbackName, signal)
+      });
+    }
+  }
+}
+
+/**
+ * Handles embedding a Mega link inside a post card.
+ */
+export function handleMegaFileCard(item, url, postTitle, filename, progressOverlay, signal) {
+  const parsed = parseMegaUrl(url);
+  if (!parsed) {
+    if (progressOverlay) showMediaUnavailableWarning(progressOverlay, "zip");
+    return;
+  }
+
+  if (parsed.type === "file") {
+    handleMegaSingleFileEmbed(item, parsed, progressOverlay, postTitle, filename, signal);
+    return;
+  }
+
+  handleMegaFolderEmbed(item, parsed, progressOverlay, postTitle, filename, signal);
+}
+
+export async function openMegaGallery(megaUrl, galleryTitle) {
+  const signal = createExternalAbortSignal();
+
+  if (state.currentZipObjectUrls && state.currentZipObjectUrls.length > 0) {
+    state.currentZipObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    state.currentZipObjectUrls = [];
+  }
+
+  setZipNavVisible(false, true);
+  if (zipViewer) zipViewer.classList.remove("hidden");
+  if (zipTitle) zipTitle.textContent = galleryTitle || "Mega Gallery";
+  if (zipIndicator) zipIndicator.textContent = "";
+  if (zipContent) {
+    zipContent.innerHTML = '<div id="zip-progress-text"></div>';
+    const pt = document.getElementById("zip-progress-text");
+    renderArchiveProgress(pt, "Connecting...", null, galleryTitle || "Mega Gallery");
+  }
+
+  try {
+    const parsed = parseMegaUrl(megaUrl);
+    if (!parsed) throw new Error("Invalid Mega URL format");
+
+    if (parsed.type === "file") {
+      await handleSingleMegaFile(parsed, galleryTitle, signal);
+      return;
+    }
+
+    const cacheKey = parsed.id + "#" + parsed.key;
+    let decryptedNodes = null;
+    let headerName = null;
+
+    if (megaFolderCache.has(cacheKey)) {
+      const cached = megaFolderCache.get(cacheKey);
+      decryptedNodes = cached.decryptedNodes;
+      headerName = cached.archiveName;
+    } else {
+      const folderKeyBytes = base64urlToBytes(parsed.key);
+      const progressText = document.getElementById("zip-progress-text");
+      if (progressText) renderArchiveProgress(progressText, "Fetching folder index...", null, galleryTitle || "Mega Gallery");
+
+      const data = await megaApiRequest(`id=${Date.now()}&n=${parsed.id}`, [{ a: "f", c: 1, r: 1 }], signal);
+
+      const megaErrCode = Array.isArray(data) ? data[0] : data;
+      if (typeof megaErrCode === "number" && megaErrCode < 0) {
+        const MEGA_ERRORS = {
+          "-2": "Bad arguments / invalid folder ID",
+          "-3": "Mega server temporarily congested — please try again",
+          "-9": "Folder not found or link has expired",
+          "-16": "Decryption key mismatch",
+          "-18": "Mega blocked this request",
+          "-509": "Mega bandwidth quota exceeded — try again later"
+        };
+        throw new Error(`Mega error ${megaErrCode}: ${MEGA_ERRORS[String(megaErrCode)] || "Unknown Mega error"}`);
+      }
+
+      if (!Array.isArray(data) || !data[0] || !data[0].f) {
+        throw new Error("Unexpected Mega folder response");
+      }
+
+      if (progressText) renderArchiveProgress(progressText, "Decrypting folder index...", null, galleryTitle || "Mega Gallery");
+
+      decryptedNodes = await decryptAllMegaNodes(data[0].f, folderKeyBytes);
+      const treeRes = formatMegaFileTree(decryptedNodes);
+      headerName = treeRes.headerName;
+    }
+
+    const validFiles = [];
+    for (const n of decryptedNodes.values()) {
+      if (!n.isFolder && isImageOrVideo(n.name)) {
+        validFiles.push({
+          node: n.node,
+          name: n.name,
+          rawKey: n.rawKey,
+          size: n.size || 0,
+          cachedDlUrl: null
+        });
+      }
+    }
+
+    validFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+
+    if (validFiles.length === 0) {
+      if (zipContent) {
+        zipContent.innerHTML = '<div style="color:white; margin: auto; text-align: center; padding: 1rem;">No supported images or videos found in this Mega folder.</div>';
+      }
+      return;
+    }
+
+    if (!headerName) {
+      const treeRes = formatMegaFileTree(decryptedNodes);
+      headerName = treeRes.headerName;
+    }
+    if (zipTitle) zipTitle.textContent = headerName || galleryTitle || "Mega Gallery";
+
+    if (zipContent) zipContent.innerHTML = "";
+    if (zipIndicator) zipIndicator.textContent = `1 / ${validFiles.length}`;
+
+    const prefetchBatch = validFiles.slice(0, 25).map((f) => ({ a: "g", g: 1, ssl: 2, n: f.node.h }));
+    megaApiRequest(`id=${Date.now()}&n=${parsed.id}`, prefetchBatch, signal)
+      .then((batchRes) => {
+        if (Array.isArray(batchRes)) {
+          batchRes.forEach((resItem, idx) => {
+            if (resItem && resItem.g && validFiles[idx]) {
+              validFiles[idx].cachedDlUrl = resItem.g;
+            }
+          });
+        }
+      })
+      .catch(() => {});
+
+    renderMegaCarousel(validFiles, parsed.id, signal);
+
+  } catch (err) {
+    if (signal.aborted) return;
+    console.error("Mega Gallery Error:", err);
+    if (zipTitle) zipTitle.textContent = "Mega — Error";
+    if (zipIndicator) zipIndicator.textContent = "";
+    if (zipContent) {
+      zipContent.innerHTML = `<div style="color:white; margin: auto; text-align: center; padding: 1rem;">
+        <div style="color:#ff6b6b; font-size:1.1rem; margin-bottom:0.5rem;">⚠ Mega Gallery Failed</div>
+        <div style="color:#ccc; font-size:0.9rem;">${err.message || "Unknown error"}</div>
+        <div style="color:#888; font-size:0.8rem; margin-top:0.5rem;">See browser console for details</div>
+      </div>`;
+    }
+  }
+}
+
+async function handleSingleMegaFile(parsed, title, signal) {
+  const progressText = document.getElementById("zip-progress-text");
+  if (progressText) renderArchiveProgress(progressText, "Fetching file info...", null, title || "Mega File");
+
+  const rawKey = base64urlToBytes(parsed.key);
+
+  const data = await megaApiRequest(`id=${Date.now()}`, [{ a: "g", g: 1, ssl: 2, p: parsed.id }], signal);
+
+  const megaErrCode = Array.isArray(data) ? data[0] : data;
+  if (typeof megaErrCode === "number" && megaErrCode < 0) {
+    const MEGA_ERRORS = {
+      "-2": "Invalid file ID",
+      "-9": "File not found or link has expired",
+      "-16": "Decryption key mismatch",
+      "-18": "Mega blocked this request",
+      "-509": "Mega bandwidth quota exceeded — try again later"
+    };
+    throw new Error(`Mega error ${megaErrCode}: ${MEGA_ERRORS[String(megaErrCode)] || "Unknown Mega error"}`);
+  }
+
+  if (!Array.isArray(data) || !data[0] || !data[0].g) {
+    throw new Error("Mega file unavailable or rate limited");
+  }
+
+  const downloadUrl = data[0].g;
+  let filename = "mega_file";
+  if (data[0].at) {
+    const attrs = decryptAttributes(data[0].at, rawKey);
+    if (attrs && attrs.n) filename = attrs.n;
+  }
+
+  const totalSize = data[0].s || 0;
+  if (zipTitle) zipTitle.textContent = filename;
+  if (zipIndicator) zipIndicator.textContent = "1 / 1";
+  if (zipContent) zipContent.dataset.mediaCount = "1";
+
+  if (progressText) {
+    renderArchiveProgress(
+      progressText,
+      "Downloading...",
+      0,
+      filename,
+      "0 B",
+      totalSize > 0 ? formatBytes(totalSize) : "..."
+    );
+  }
+
+  const blob = await downloadAndDecryptMegaPayload(
+    downloadUrl,
+    rawKey,
+    filename,
+    (loaded, total) => {
+      if (progressText) {
+        const pct = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : null;
+        renderArchiveProgress(
+          progressText,
+          "Downloading...",
+          pct,
+          filename,
+          formatBytes(loaded),
+          total > 0 ? formatBytes(total) : ""
+        );
+      }
+    },
+    signal,
+    totalSize
+  );
+
+  const blobUrl = URL.createObjectURL(blob);
+  state.currentZipObjectUrls.push(blobUrl);
+
+  if (zipContent) zipContent.innerHTML = "";
+  const container = document.createElement("div");
+  container.style.flex = "0 0 100vw";
+  container.style.height = "100%";
+  container.style.display = "flex";
+  container.style.alignItems = "center";
+  container.style.justifyContent = "center";
+
+  const ext = filename.split(".").pop().toLowerCase();
+  if (["mp4", "webm"].includes(ext)) {
+    const video = document.createElement("video");
+    video.src = blobUrl;
+    video.controls = true;
+    video.playsInline = true;
+    video.style.maxWidth = "100%";
+    video.style.maxHeight = "100%";
+    video.style.objectFit = "contain";
+    container.appendChild(video);
+  } else {
+    const img = document.createElement("img");
+    img.src = blobUrl;
+    img.style.maxWidth = "100%";
+    img.style.maxHeight = "100%";
+    img.style.objectFit = "contain";
+    container.appendChild(img);
+  }
+  if (zipContent) zipContent.appendChild(container);
+}
+
+function renderMegaCarousel(files, folderId, signal) {
+  const fileDataMap = new Map();
+  const cachedBlobs = new Map();
+
+  files.forEach((f) => fileDataMap.set(f.node.h, f));
+
+  if (window.zipMediaObserver) window.zipMediaObserver.disconnect();
+
+  const pCount = Math.max(1, window.pawPreloadCount || 1);
+  window.zipMediaObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const target = entry.target;
+          const fileId = target.dataset.fileId;
+          if (fileId && !target.dataset.loaded && !target.dataset.loading) {
+            loadAndDisplayMegaItem(target, fileDataMap.get(fileId), folderId, cachedBlobs, signal);
+          }
+        }
+      });
+    },
+    {
+      root: zipContent,
+      rootMargin: `0px ${pCount * 100}%`
+    }
+  );
+
+  files.forEach((file) => {
+    const itemContainer = createMegaItemContainer(file);
+    if (zipContent) zipContent.appendChild(itemContainer);
+    window.zipMediaObserver.observe(itemContainer);
+  });
+
+  if (zipContent) zipContent.dataset.mediaCount = files.length;
+
+  if (files.length > 1 && zipContent && zipContent.children.length > 1) {
+    const firstChild = zipContent.children[0];
+    const lastChild = zipContent.children[zipContent.children.length - 1];
+    const cloneFirst = firstChild.cloneNode(true);
+    const cloneLast = lastChild.cloneNode(true);
+
+    cloneFirst.dataset.isClone = "true";
+    cloneLast.dataset.isClone = "true";
+
+    zipContent.insertBefore(cloneLast, firstChild);
+    zipContent.appendChild(cloneFirst);
+
+    window.zipMediaObserver.observe(cloneFirst);
+    window.zipMediaObserver.observe(cloneLast);
+
+    void zipContent.offsetHeight;
+
+    const itemWidth = zipContent.clientWidth || window.innerWidth;
+    zipContent.style.scrollSnapType = "none";
+    zipContent.scrollLeft = itemWidth;
+
+    setTimeout(() => {
+      zipContent.style.scrollSnapType = "";
+    }, 50);
+  }
+}
+
+function createMegaItemContainer(file) {
+  const container = document.createElement("div");
+  container.className = "media-item";
+  container.dataset.fileId = file.node.h;
+  container.style.flex = "0 0 100vw";
+  container.style.height = "100%";
+  container.style.scrollSnapAlign = "start";
+  container.style.display = "flex";
+  container.style.alignItems = "center";
+  container.style.justifyContent = "center";
+  container.style.position = "relative";
+
+  const overlay = document.createElement("div");
+  overlay.className = "media-progress";
+  overlay.style.display = "flex";
+  renderMediaProgress(overlay, "Loading...", 0, file.name, "0 B", file.size ? formatBytes(file.size) : "...");
+  container.appendChild(overlay);
+
+  const img = document.createElement("img");
+  img.style.maxWidth = "100%";
+  img.style.maxHeight = "100%";
+  img.style.objectFit = "contain";
+  img.style.display = "none";
+  img.decoding = "async";
+  container.appendChild(img);
+
+  return container;
+}
+
+async function loadAndDisplayMegaItem(container, file, folderId, cachedBlobs, signal) {
+  if (!file || container.dataset.loading === "true") return;
+  container.dataset.loading = "true";
+
+  const overlay = container.querySelector(".media-progress");
+
+  try {
+    let blobUrl = cachedBlobs.get(file.node.h);
+    const globalBlobKey = folderId + "/" + file.node.h;
+
+    if (!blobUrl && megaBlobCache.has(globalBlobKey)) {
+      const b = megaBlobCache.get(globalBlobKey);
+      blobUrl = URL.createObjectURL(b);
+      state.currentZipObjectUrls.push(blobUrl);
+      cachedBlobs.set(file.node.h, blobUrl);
+    }
+
+    if (!blobUrl) {
+      if (overlay) renderMediaProgress(overlay, "Loading...", 0, file.name, "Connecting...", file.size ? formatBytes(file.size) : "");
+
+      let dlUrl = file.cachedDlUrl;
+      if (!dlUrl) {
+        const data = await megaApiRequest(`id=${Date.now()}&n=${folderId}`, [{ a: "g", g: 1, ssl: 2, n: file.node.h }], signal);
+        const megaErr = Array.isArray(data) ? data[0] : data;
+        if (typeof megaErr === "number" && megaErr < 0) {
+          throw new Error(`Mega error ${megaErr}`);
+        }
+        dlUrl = data[0]?.g;
+      }
+
+      if (!dlUrl) throw new Error("Mega did not return a download URL");
+
+      const totalSize = file.size || file.node?.s || 0;
+      if (overlay) {
+        renderMediaProgress(
+          overlay,
+          "Loading...",
+          0,
+          file.name,
+          "0 B",
+          totalSize > 0 ? formatBytes(totalSize) : "..."
+        );
+      }
+
+      const blob = await downloadAndDecryptMegaPayload(
+        dlUrl,
+        file.rawKey,
+        file.name,
+        (loaded, total) => {
+          if (overlay) {
+            const pct = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : null;
+            renderMediaProgress(
+              overlay,
+              "Loading...",
+              pct,
+              file.name,
+              formatBytes(loaded),
+              total > 0 ? formatBytes(total) : ""
+            );
+          }
+        },
+        signal,
+        totalSize
+      );
+
+      cacheMegaBlob(globalBlobKey, blob);
+      blobUrl = URL.createObjectURL(blob);
+      state.currentZipObjectUrls.push(blobUrl);
+      cachedBlobs.set(file.node.h, blobUrl);
+    }
+
+    container.dataset.loaded = "true";
+    container.dataset.loading = "false";
+    if (overlay) overlay.style.display = "none";
+
+    const isVideo = ["mp4", "webm"].includes(file.name.split(".").pop().toLowerCase());
+
+    const allMatchingContainers = zipContent ? zipContent.querySelectorAll(`[data-file-id="${file.node.h}"]`) : [container];
+    allMatchingContainers.forEach((c) => {
+      c.dataset.loaded = "true";
+      c.dataset.loading = "false";
+      const o = c.querySelector(".media-progress");
+      if (o) o.style.display = "none";
+
+      if (isVideo) {
+        let vid = c.querySelector("video");
+        if (!vid) {
+          vid = document.createElement("video");
+          vid.controls = true;
+          vid.playsInline = true;
+          vid.style.maxWidth = "100%";
+          vid.style.maxHeight = "100%";
+          vid.style.objectFit = "contain";
+          c.appendChild(vid);
+        }
+        vid.src = blobUrl;
+      } else {
+        const image = c.querySelector("img");
+        if (image) {
+          image.src = blobUrl;
+          image.style.display = "block";
+          if (image.decode) image.decode().catch(() => {});
+        }
+      }
+    });
+
+  } catch (err) {
+    if (signal.aborted) return;
+    console.error(`Failed to load Mega file ${file.name}:`, err);
+    container.dataset.loading = "false";
+    if (overlay) {
+      showMediaUnavailableWarning(overlay, {
+        type: isVideo ? "video" : "image",
+        filename: file.name,
+        errorStatus: "404",
+        message: err.message || "Failed to load Mega file",
+        onRetry: () => loadAndDisplayMegaItem(container, file, folderId, cachedBlobs, signal)
+      });
+    }
+  }
+}

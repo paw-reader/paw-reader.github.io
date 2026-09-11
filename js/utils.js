@@ -1,19 +1,74 @@
 import { PROXY_URL, state } from "./state.js";
 
-export function showMediaUnavailableWarning(container, type = "media") {
+export function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+export function showMediaUnavailableWarning(container, optionsOrType = "media", filename = "", errorStatus = "404", onRetry = null) {
   if (!container) return;
   container.style.display = "flex";
+
+  let type = "media";
+  let file = "";
+  let status = "404";
+  let retryFn = null;
+
+  if (typeof optionsOrType === "object" && optionsOrType !== null) {
+    type = optionsOrType.type || "media";
+    file = optionsOrType.filename || "";
+    status = optionsOrType.errorStatus || "404";
+    retryFn = optionsOrType.onRetry || null;
+  } else {
+    type = optionsOrType || "media";
+    file = filename || "";
+    status = errorStatus || "404";
+    retryFn = onRetry || null;
+  }
+
   const displayNames = { pawchive: "Pawchive", kemono: "Kemono", cum: "Coomer" };
   const siteName = displayNames[state.currentSite] || state.currentSite;
+  const isRateLimited = String(status) === "429";
+  const customMessage = (typeof optionsOrType === "object" && optionsOrType !== null) ? optionsOrType.message : "";
+  const subText = customMessage || (isRateLimited
+    ? `Rate limited by ${siteName} (DDoS-Guard / Too Many Requests). Please wait a moment before retrying.`
+    : `This file has not yet been imported to ${siteName}, or the server is busy/unavailable.`);
+
   container.innerHTML = `
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; gap: 10px; padding: 20px; text-align: center; background: rgba(0,0,0,0.5); border-radius: 12px; box-sizing: border-box;">
-      <span style="color: #ffb86c; font-size: 2rem;">⚠️</span>
-      <span style="color: #ffb86c; font-size: 1.2rem; font-weight: bold;">${type === "zip" ? "Archive" : "Media"} Unavailable</span>
-      <span style="color: #ccc; font-size: 0.95rem; font-weight: normal; max-width: 250px; line-height: 1.4;">
-        This file has not yet been imported to ${siteName}, or the server is busy/unavailable.
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; gap: 8px; padding: 20px; text-align: center; background: rgba(0,0,0,0.6); border-radius: 12px; box-sizing: border-box;">
+      <span style="color: #ff5555; font-size: 2.2rem; font-weight: 800; font-family: monospace; letter-spacing: 1px; line-height: 1;">${escapeHtml(String(status))}</span>
+      <span style="color: #ffb86c; font-size: 1.2rem; font-weight: bold;">${isRateLimited ? "Too Many Requests" : (type === "zip" ? "Archive" : "Media") + " Unavailable"}</span>
+      ${file ? `<span style="color: #ddd; font-size: 0.9rem; max-width: 85vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; font-family: monospace;">${escapeHtml(file)}</span>` : ""}
+      <span style="color: #ccc; font-size: 0.95rem; font-weight: normal; max-width: 280px; line-height: 1.4;">
+        ${subText}
       </span>
+      ${retryFn ? `
+        <button class="retry-media-btn" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.15); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 8px; padding: 6px 14px; font-size: 0.9rem; font-weight: bold; cursor: pointer; margin-top: 6px; transition: background 0.2s;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg> Retry
+        </button>
+      ` : ""}
     </div>
   `;
+
+  if (retryFn) {
+    const btn = container.querySelector(".retry-media-btn");
+    if (btn) {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        retryFn();
+      });
+      btn.addEventListener("mouseenter", () => {
+        btn.style.background = "rgba(255, 255, 255, 0.25)";
+      });
+      btn.addEventListener("mouseleave", () => {
+        btn.style.background = "rgba(255, 255, 255, 0.15)";
+      });
+    }
+  }
 }
 
 export function formatBytes(bytes) {
@@ -98,19 +153,7 @@ export function getServicePostUrl(service, userId, postId) {
 export function getMediaUrl(path) {
   if (!path) return null;
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  if (state.currentSite === "kemono") {
-    // Kemono's main CDN (n3) is currently down/dropping connections.
-    // We use their thumbnail server as a fallback so images at least load!
-    const ext = path.split(".").pop().toLowerCase();
-    if (["mp4", "webm", "mov"].includes(ext)) {
-      return `https://kemono.cr/data${path}`;
-    }
-    return `https://img.kemono.cr/thumbnail/data${path}`;
-  } else if (state.currentSite === "cum") {
-    return `https://e1.cum.st${path}`;
-  } else if (state.currentSite === "pawchive") {
-    return `https://file.pawchive.pw/data${path}`;
-  }
+
   return `${PROXY_URL}/${state.currentSite}/file/data${path}`;
 }
 
@@ -129,50 +172,50 @@ export function stopProgress() {
   }
 }
 
-const DB_VERSION = 1;
-const DB_NAME = "pawchive_downloads";
-let _db;
-export async function initDB() {
-  if (_db) return _db;
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      e.target.result.createObjectStore("chunks", { keyPath: "url" });
-    };
-    req.onsuccess = () => {
-      _db = req.result;
-      resolve(_db);
-    };
-    req.onerror = () => reject(req.error);
-  });
+/**
+ * Standard media loading and progress renderer for post items and embeds.
+ * Ensures consistent typography, positioning, and layout across Kemono, Coomer, Pawchive, Mega, and Dropbox.
+ */
+export function renderMediaProgress(container, status = "Loading...", percent = null, filename = "", loadedStr = "", totalStr = "") {
+  if (!container) return;
+  const pctText = (percent !== null && percent !== undefined && !isNaN(percent)) ? ` ${percent}%` : "";
+  const sizeText = loadedStr && totalStr ? `${loadedStr} / ${totalStr}` : (loadedStr || totalStr || "");
+
+  const filenameHtml = filename
+    ? `<span style="font-size: 1rem; font-weight: normal; color: #ddd; max-width: 85vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; margin: 4px 0;">${escapeHtml(filename)}</span>`
+    : "";
+  const sizeHtml = sizeText
+    ? `<span style="font-size: 1rem; font-weight: normal; color: #aaa; display: block;">${sizeText}</span>`
+    : "";
+
+  container.innerHTML = `
+    <div>${escapeHtml(status)}${pctText}</div>
+    ${filenameHtml}
+    ${sizeHtml}
+  `;
 }
 
-export async function getDbItem(url) {
-  const db = await initDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("chunks", "readonly");
-    const req = tx.objectStore("chunks").get(url);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+/**
+ * Standard archive and modal loading renderer for ZIP, Mega, and Dropbox full-screen viewers.
+ */
+export function renderArchiveProgress(container, status = "Loading...", percent = null, title = "", loadedStr = "", totalStr = "", extraDetail = "") {
+  if (!container) return;
+  const pctText = (percent !== null && percent !== undefined && !isNaN(percent)) ? ` ${percent}%` : "";
+  const sizeText = loadedStr && totalStr ? `${loadedStr} / ${totalStr}` : (loadedStr || totalStr || "");
+
+  const titleHtml = title
+    ? `<div style="font-size: 1.05rem; font-weight: normal; color: #ddd; max-width: 85vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(title)}</div>`
+    : "";
+  const sizeDetail = sizeText && extraDetail ? `${sizeText} • ${escapeHtml(extraDetail)}` : (sizeText || (extraDetail ? escapeHtml(extraDetail) : ""));
+  const sizeHtml = sizeDetail
+    ? `<div style="font-size: 0.95rem; font-weight: normal; color: #aaa;">${sizeDetail}</div>`
+    : "";
+
+  container.innerHTML = `
+    <div style="font-size: 1.6rem; font-weight: bold; font-family: monospace; letter-spacing: 0.5px;">${escapeHtml(status)}${pctText}</div>
+    ${titleHtml}
+    ${sizeHtml}
+  `;
 }
 
-export async function setDbItem(url, chunks, contentType, totalSize) {
-  const db = await initDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("chunks", "readwrite");
-    tx.objectStore("chunks").put({ url, chunks, contentType, totalSize, timestamp: Date.now() });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
 
-export async function deleteDbItem(url) {
-  const db = await initDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("chunks", "readwrite");
-    tx.objectStore("chunks").delete(url);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}

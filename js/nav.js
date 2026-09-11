@@ -214,6 +214,7 @@ export function updateNavTabs(creator) {
       if (state.currentSite === "cum" && tab === "Posts" && postCategories.length > 0) {
         const existingDropdown = document.getElementById("cum-posts-dropdown");
         if (existingDropdown) {
+          if (existingDropdown._cleanup) existingDropdown._cleanup();
           existingDropdown.remove();
           return;
         }
@@ -292,20 +293,30 @@ export function updateNavTabs(creator) {
         const navEl = document.getElementById("nav");
         if (navEl) navEl.classList.add("visible");
 
+        function cleanup() {
+          document.removeEventListener("mousedown", outsideClose);
+          document.removeEventListener("touchstart", outsideClose);
+        }
+        dropdown._cleanup = cleanup;
+
         function outsideClose(ev) {
           if (!dropdown.contains(ev.target) && ev.target !== btn) {
+            cleanup();
             dropdown.remove();
-            document.removeEventListener("mousedown", outsideClose);
             if (navEl) updateNavVisibility();
           }
         }
-        setTimeout(() => document.addEventListener("mousedown", outsideClose), 0);
+        setTimeout(() => {
+          document.addEventListener("mousedown", outsideClose);
+          document.addEventListener("touchstart", outsideClose);
+        }, 0);
         return;
       }
 
       if (tab === "Linked Accounts") {
         const existingDropdown = document.getElementById("linked-accounts-dropdown");
         if (existingDropdown) {
+          if (existingDropdown._cleanup) existingDropdown._cleanup();
           existingDropdown.remove();
           return;
         }
@@ -389,14 +400,23 @@ export function updateNavTabs(creator) {
         const navEl = document.getElementById("nav");
         if (navEl) navEl.classList.add("visible");
 
+        function cleanup() {
+          document.removeEventListener("mousedown", outsideClose);
+          document.removeEventListener("touchstart", outsideClose);
+        }
+        dropdown._cleanup = cleanup;
+
         function outsideClose(ev) {
           if (!dropdown.contains(ev.target) && ev.target !== btn) {
+            cleanup();
             dropdown.remove();
-            document.removeEventListener("mousedown", outsideClose);
             if (navEl) updateNavVisibility();
           }
         }
-        setTimeout(() => document.addEventListener("mousedown", outsideClose), 0);
+        setTimeout(() => {
+          document.addEventListener("mousedown", outsideClose);
+          document.addEventListener("touchstart", outsideClose);
+        }, 0);
         return;
       }
 
@@ -450,23 +470,24 @@ export function updateNavTabs(creator) {
               const doc = parser.parseFromString(html, "text/html");
               const cards = doc.querySelectorAll(".user-card");
               const scrapedCreators = [];
+
+              const creatorFavMap = new Map();
+              if (state.allCreators) {
+                for (const cObj of state.allCreators) {
+                  if (cObj.allPlatforms) {
+                    for (const p of cObj.allPlatforms) {
+                      creatorFavMap.set(`${p.service}:${p.id}`, p.favorited || p.bookmarked || 0);
+                    }
+                  }
+                }
+              }
+
               cards.forEach((card) => {
                 const nameEl = card.querySelector(".user-card__name");
                 const serviceId = card.getAttribute("data-service");
                 const userId = card.getAttribute("data-id");
                 if (serviceId && userId && nameEl) {
-                  let favoritedCount = 0;
-                  if (state.allCreators) {
-                    for (const cObj of state.allCreators) {
-                      if (cObj.allPlatforms) {
-                        const match = cObj.allPlatforms.find((p) => p.id === userId && p.service === serviceId);
-                        if (match) {
-                          favoritedCount = match.favorited || match.bookmarked || 0;
-                          break;
-                        }
-                      }
-                    }
-                  }
+                  const favoritedCount = creatorFavMap.get(`${serviceId}:${userId}`) || 0;
 
                   scrapedCreators.push({
                     id: userId,
@@ -478,7 +499,7 @@ export function updateNavTabs(creator) {
               });
               renderCreators(scrapedCreators);
             })
-            .catch((err) => {
+            .catch(() => {
               feed.innerHTML = "";
               const placeholder = document.createElement("div");
               placeholder.style.cssText = `text-align:center; padding: ${placeholderPadding}; color: #aaa; font-size: 1.2rem; width: 100%; box-sizing: border-box;`;
@@ -498,7 +519,7 @@ export function updateNavTabs(creator) {
             const similarCreators = data.creators || (Array.isArray(data) ? data : null);
             renderCreators(similarCreators);
           })
-          .catch((err) => {
+          .catch(() => {
             feed.innerHTML = "";
             const placeholder = document.createElement("div");
             placeholder.style.cssText = `text-align:center; padding: ${placeholderPadding}; color: #aaa; font-size: 1.2rem; width: 100%; box-sizing: border-box;`;
@@ -519,78 +540,109 @@ export function updateNavTabs(creator) {
       (state.currentSite === "kemono" || state.currentSite === "pawchive") &&
       (tab === "DMs" || tab === "Announcements" || tab === "Fancards" || tab === "Linked Accounts")
     ) {
-      if (tab === "Linked Accounts") {
-        const cacheKey = `_linksFetched`;
-        if (creator[cacheKey] !== undefined) {
-          btn.style.display = creator.allPlatforms && creator.allPlatforms.length > 1 ? "flex" : "none";
-        } else {
-          fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/links`)
-            .then(res => res.ok ? res.json() : [])
-            .then(arr => {
-              if (Array.isArray(arr) && arr.length > 0) {
-                creator.allPlatforms = creator.allPlatforms || [{ id: creator.id, service: creator.service, name: creator.name }];
-                
-                arr.forEach(link => {
-                  const exists = creator.allPlatforms.find(p => p.id === link.id && p.service === link.service);
-                  if (!exists) {
-                    creator.allPlatforms.push({
-                      id: link.id,
-                      service: link.service,
-                      name: link.name || link.id
-                    });
-                  }
-                });
-              }
-              creator[cacheKey] = true;
-              btn.style.display = creator.allPlatforms && creator.allPlatforms.length > 1 ? "flex" : "none";
-            })
-            .catch(() => {
-              creator[cacheKey] = true;
-            });
-        }
-      } else {
-        const cacheKey = `_has${tab}`;
+      const srv = (creator.service || "").toLowerCase();
 
-        if (creator[cacheKey] !== undefined) {
-          btn.style.display = creator[cacheKey] ? "" : "none";
-        } else {
-          btn.style.display = "none";
-          
-          if (state.currentSite === "pawchive" && tab === "DMs") {
-            fetch(`${PROXY_URL}/pawchive/${creator.service}/user/${creator.id}/dms`)
-              .then(res => {
-                if (!res.ok) throw new Error("No DMs found or blocked");
-                return res.text();
-              })
-              .then(html => {
-                if (html.includes('<article') || html.includes('post-card')) {
-                  btn.style.display = "";
-                  creator[cacheKey] = true;
-                } else {
-                  creator[cacheKey] = false;
-                }
-              })
-              .catch(() => {
-                creator[cacheKey] = false;
-              });
+      // Defer background tab checks by 350ms so fetchPosts() gets network priority
+      setTimeout(() => {
+        if (tab === "Linked Accounts") {
+          const cacheKey = `_linksFetched`;
+          if (creator[cacheKey] !== undefined) {
+            btn.style.display = creator.allPlatforms && creator.allPlatforms.length > 1 ? "flex" : "none";
           } else {
-            fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}?limit=1`)
-              .then((res) => res.json())
-              .then((data) => {
-                const arr = data.posts || data.announcements || data.dms || data.fancards || (Array.isArray(data) ? data : []);
-                if (arr.length > 0) {
-                  btn.style.display = "";
-                  creator[cacheKey] = true;
-                } else {
-                  creator[cacheKey] = false;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+            fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/links`, { signal: controller.signal })
+              .then((res) => (res.ok ? res.json() : []))
+              .then((arr) => {
+                clearTimeout(timeoutId);
+                if (Array.isArray(arr) && arr.length > 0) {
+                  creator.allPlatforms = creator.allPlatforms || [{ id: creator.id, service: creator.service, name: creator.name }];
+                  
+                  arr.forEach((link) => {
+                    const exists = creator.allPlatforms.find((p) => p.id === link.id && p.service === link.service);
+                    if (!exists) {
+                      creator.allPlatforms.push({
+                        id: link.id,
+                        service: link.service,
+                        name: link.name || link.id
+                      });
+                    }
+                  });
                 }
+                creator[cacheKey] = true;
+                btn.style.display = creator.allPlatforms && creator.allPlatforms.length > 1 ? "flex" : "none";
               })
               .catch(() => {
-                creator[cacheKey] = false;
+                clearTimeout(timeoutId);
+                creator[cacheKey] = true;
+                btn.style.display = creator.allPlatforms && creator.allPlatforms.length > 1 ? "flex" : "none";
               });
           }
+        } else {
+          // Enforce platform support before querying
+          if (tab === "DMs" && srv !== "patreon") {
+            btn.style.display = "none";
+            return;
+          }
+          if (tab === "Announcements" && srv !== "patreon") {
+            btn.style.display = "none";
+            return;
+          }
+          if (tab === "Fancards" && srv !== "fanbox") {
+            btn.style.display = "none";
+            return;
+          }
+
+          const cacheKey = `_has${tab}`;
+
+          if (creator[cacheKey] !== undefined) {
+            btn.style.display = creator[cacheKey] ? "" : "none";
+          } else {
+            btn.style.display = "none";
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+            if (state.currentSite === "pawchive" && tab === "DMs") {
+              fetch(`${PROXY_URL}/pawchive/${creator.service}/user/${creator.id}/dms`, { signal: controller.signal })
+                .then((res) => {
+                  if (!res.ok) throw new Error("No DMs found or blocked");
+                  return res.text();
+                })
+                .then((html) => {
+                  clearTimeout(timeoutId);
+                  if (html.includes("<article") || html.includes("post-card") || html.includes("dm-card")) {
+                    btn.style.display = "";
+                    creator[cacheKey] = true;
+                  } else {
+                    creator[cacheKey] = false;
+                  }
+                })
+                .catch(() => {
+                  clearTimeout(timeoutId);
+                  creator[cacheKey] = false;
+                });
+            } else {
+              fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}?limit=1`, { signal: controller.signal })
+                .then((res) => (res.ok ? res.json() : []))
+                .then((data) => {
+                  clearTimeout(timeoutId);
+                  const arr = data.posts || data.announcements || data.dms || data.fancards || (Array.isArray(data) ? data : []);
+                  if (arr.length > 0) {
+                    btn.style.display = "";
+                    creator[cacheKey] = true;
+                  } else {
+                    creator[cacheKey] = false;
+                  }
+                })
+                .catch(() => {
+                  clearTimeout(timeoutId);
+                  creator[cacheKey] = false;
+                });
+            }
+          }
         }
-      }
+      }, 350);
     }
 
     navTabs.appendChild(btn);
@@ -598,7 +650,6 @@ export function updateNavTabs(creator) {
 }
 
 export function wrapCarousel(carousel, direction) {
-  const w = window.innerWidth;
   let target = 0;
   if (direction === "end") {
     target = carousel.scrollWidth - carousel.clientWidth;

@@ -37,16 +37,54 @@ import {
   isZipNavInteractive,
   setZipNavVisible,
   updateZipNavVisibility,
-  openZipGallery,
-  preloadUpcomingZipMedia
+  closeZipGallery
 } from './js/zip.js';
-import { abortExternalGallery } from './js/externalGalleries.js';
 import { initGestures } from './js/gestures.js';
 
 window.pawAnimationsDisabled = localStorage.getItem('paw_animations_disabled') === 'true';
 window.pawAutoDownloadZip = localStorage.getItem('paw_auto_download_zip') === 'true';
 window.pawHideCovers = localStorage.getItem('paw_hide_covers') === 'true';
+const savedPreload = localStorage.getItem('paw_preload_count');
+window.pawPreloadCount = savedPreload !== null ? parseInt(savedPreload, 10) : 1;
 if (window.pawAnimationsDisabled) document.body.classList.add('no-animations');
+
+function formatWorkerVersion(raw) {
+  if (!raw || typeof raw !== 'string') return raw;
+  const trimmed = raw.trim();
+  const uuidMatch = trimmed.match(/^([0-9a-f]{8})-[0-9a-f]{4}/i);
+  if (uuidMatch) {
+    return uuidMatch[1].toLowerCase();
+  }
+  const hexMatch = trimmed.match(/^[0-9a-f]{8}$/i);
+  if (hexMatch) {
+    return hexMatch[0].toLowerCase();
+  }
+  return trimmed;
+}
+
+(async function checkWorkerVersion() {
+  try {
+    const res = await fetch(`${PROXY_URL}/version`);
+    if (res.ok) {
+      const data = await res.json();
+      const rawVersion = (data && data.version) ? data.version : (data && data.id ? data.id : data);
+      const version = formatWorkerVersion(rawVersion);
+      window.pawWorkerVersion = version;
+      console.log(`Worker deployed version: ${version}`);
+    } else {
+      const headerVersion = res.headers.get('X-Worker-Version');
+      if (headerVersion) {
+        const version = formatWorkerVersion(headerVersion);
+        window.pawWorkerVersion = version;
+        console.log(`Worker deployed version: ${version}`);
+      } else {
+        console.warn(`Worker deployed version: Unknown (HTTP ${res.status})`);
+      }
+    }
+  } catch (err) {
+    console.warn('Worker deployed version: Unable to connect to worker', err);
+  }
+})();
 
 const settingHideNoMedia = document.getElementById('setting-hide-no-media');
 if (settingHideNoMedia) {
@@ -93,6 +131,15 @@ if (settingHideCovers) {
       resetFeed();
       fetchPosts();
     }
+  });
+}
+
+const settingPreloadCount = document.getElementById('setting-preload-count');
+if (settingPreloadCount) {
+  settingPreloadCount.value = String(window.pawPreloadCount);
+  settingPreloadCount.addEventListener('change', (e) => {
+    window.pawPreloadCount = parseInt(e.target.value, 10);
+    localStorage.setItem('paw_preload_count', window.pawPreloadCount);
   });
 }
 
@@ -147,7 +194,10 @@ const navTabsEl = document.getElementById('nav-tabs');
 if (navTabsEl) {
   navTabsEl.addEventListener('wheel', (e) => {
     if (e.deltaY !== 0 && e.deltaX === 0) {
-      navTabsEl.scrollLeft += e.deltaY;
+      let multiplier = 1;
+      if (e.deltaMode === 1) multiplier = 35;
+      else if (e.deltaMode === 2) multiplier = 600;
+      navTabsEl.scrollLeft += e.deltaY * multiplier;
       e.preventDefault();
     }
   }, { passive: false });
@@ -166,7 +216,7 @@ if (navHome) {
     
     state.creatorPage = 1;
     if (searchInput) searchInput.value = '';
-    if (sortSelect) sortSelect.value = 'followers-desc';
+    if (sortSelect) sortSelect.value = 'popularity';
     if (contentFilterSelect) contentFilterSelect.value = 'all';
     if (serviceFilterSelect) {
       const checkboxes = serviceFilterSelect.querySelectorAll('input[type="checkbox"]');
@@ -202,14 +252,14 @@ if (navBack) {
 
 const btnLatest = document.getElementById('btn-latest');
 if (btnLatest) {
-  btnLatest.addEventListener('click', async () => {
+  btnLatest.addEventListener('click', () => {
     resetFeed();
     state.currentFeedEndpoint = `${PROXY_URL}/${state.currentSite}/api/v1/posts`;
     state.currentFeedCreatorName = null;
     updateNavTabs(null);
     if (navBack) navBack.classList.remove('hidden'); 
     showView(feedView, true);
-    await loadCreators();
+    loadCreators();
     fetchPosts();
   });
 }
@@ -296,14 +346,10 @@ if (genderFilterSelect) {
 }
 
 if (closeZipViewer) {
-  closeZipViewer.addEventListener('click', () => {
+  closeZipViewer.addEventListener('click', (e) => {
+    e.stopPropagation();
     if (!isZipNavInteractive()) return;
-    abortExternalGallery();
-    setZipNavVisible(false, true);
-    if (zipViewer) zipViewer.classList.add('hidden');
-    if (zipContent) zipContent.innerHTML = '';
-    state.currentZipObjectUrls.forEach(url => URL.revokeObjectURL(url));
-    state.currentZipObjectUrls = [];
+    closeZipGallery();
   });
 }
 
@@ -316,14 +362,10 @@ if (zipSettingsViewer && settingsMenu) {
 }
 
 if (zipHomeViewer) {
-  zipHomeViewer.addEventListener('click', () => {
+  zipHomeViewer.addEventListener('click', (e) => {
+    e.stopPropagation();
     if (!isZipNavInteractive()) return;
-    abortExternalGallery();
-    setZipNavVisible(false, true);
-    if (zipViewer) zipViewer.classList.add('hidden');
-    if (zipContent) zipContent.innerHTML = '';
-    state.currentZipObjectUrls.forEach(url => URL.revokeObjectURL(url));
-    state.currentZipObjectUrls = [];
+    closeZipGallery();
     state.currentFeedCreatorName = null;
     updateNavTabs(null);
     showView(welcomeScreen, false);
@@ -336,15 +378,7 @@ if (zipHomeViewer) {
 if (zipIndicator && zipContent) {
   zipIndicator.addEventListener('click', (e) => {
     e.stopPropagation();
-    const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
-    if (count <= 0) return;
-    const itemWidth = zipContent.clientWidth || window.innerWidth;
-    const target = count > 1 ? 1 * itemWidth : 0;
-    zipContent.style.scrollSnapType = 'none';
-    zipContent.scrollTo({ left: target, behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth' });
-    setTimeout(() => {
-      zipContent.style.scrollSnapType = '';
-    }, 150);
+    setZipNavVisible(!state.zipNavManualVisible, true);
   });
 }
 
@@ -352,19 +386,34 @@ if (zipViewer) {
   zipViewer.addEventListener('mousemove', updateZipNavVisibility);
 
   zipViewer.addEventListener('click', (e) => {
-    if (e.target.tagName.toLowerCase() === 'button' || e.target.id === 'zip-indicator' || e.target.closest('#zip-nav')) return;
+    if (
+      e.target.tagName.toLowerCase() === 'button' ||
+      e.target.closest('#zip-nav') ||
+      e.target.closest('#settings-menu')
+    ) {
+      return;
+    }
+
+    if (e.target.id === 'zip-indicator' || e.target.closest('#zip-indicator')) {
+      setZipNavVisible(!state.zipNavManualVisible, true);
+      return;
+    }
+
     const x = e.clientX;
     const w = window.innerWidth;
-    const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
-    if (!zipContent || count <= 1) return;
+    const count = parseInt(zipContent?.dataset?.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
 
-    if (x < w * 0.2) {
-      navigateCarousel(zipContent, 'left', count);
-    } else if (x > w * 0.8) {
-      navigateCarousel(zipContent, 'right', count);
-    } else {
-      setZipNavVisible(!state.zipNavManualVisible, true);
+    if (count > 1) {
+      if (x < w * 0.2) {
+        navigateCarousel(zipContent, 'left', count);
+        return;
+      } else if (x > w * 0.8) {
+        navigateCarousel(zipContent, 'right', count);
+        return;
+      }
     }
+
+    setZipNavVisible(!state.zipNavManualVisible, true);
   });
 }
 
@@ -378,8 +427,6 @@ if (zipContent) {
     const rawIndex = Math.round(zipContent.scrollLeft / itemWidth);
     const realIndex = (rawIndex - 1 + count) % count;
     if (zipIndicator) zipIndicator.textContent = `${realIndex + 1} / ${count}`;
-
-    preloadUpcomingZipMedia();
 
     if (!zipContent._animId) {
       clearTimeout(zipScrollSettleTimer);

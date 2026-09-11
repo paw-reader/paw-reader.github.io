@@ -1,7 +1,8 @@
 import { state } from "./state.js";
-import { formatBytes, showMediaUnavailableWarning } from "./utils.js";
+import { formatBytes, showMediaUnavailableWarning, renderArchiveProgress } from "./utils.js";
 import { showView, welcomeScreen, navBack, updateNavTabs, wrapCarousel, settingsMenu } from "./nav.js";
 import { handleCarouselScrollSettled, smoothScroll } from "./feed.js";
+import { abortExternalGallery } from "./externalGalleries.js";
 
 export const zipViewer = document.getElementById("zip-viewer");
 export const zipTitle = document.getElementById("zip-title");
@@ -12,11 +13,30 @@ export const zipNav = document.getElementById("zip-nav");
 export const zipHomeViewer = document.getElementById("zip-home-viewer");
 export const zipSettingsViewer = document.getElementById("zip-settings-viewer");
 
-let zipNavLastVisibleTime = 0;
+let activeZipAbortController = null;
+
+export function closeZipGallery() {
+  if (activeZipAbortController) {
+    try { activeZipAbortController.abort(); } catch (_) {}
+    activeZipAbortController = null;
+  }
+  abortExternalGallery();
+  setZipNavVisible(false, true);
+  if (zipViewer) zipViewer.classList.add("hidden");
+  if (zipContent) {
+    zipContent.innerHTML = "";
+    delete zipContent.dataset.mediaCount;
+  }
+  if (zipIndicator) zipIndicator.textContent = "";
+  if (window.zipMediaObserver) {
+    window.zipMediaObserver.disconnect();
+  }
+  state.currentZipObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  state.currentZipObjectUrls = [];
+}
 
 export function isZipNavInteractive() {
   if (!zipNav || !zipNav.classList.contains("visible")) return false;
-  if (Date.now() - zipNavLastVisibleTime < 400) return false;
   return true;
 }
 
@@ -25,28 +45,13 @@ export function setZipNavVisible(visible, manual = false) {
     state.zipNavManualVisible = visible;
   }
 
-  const isDesktop = window.innerWidth > 768 && window.innerHeight > 500;
-
   if (visible) {
     if (zipNav && !zipNav.classList.contains("visible")) {
-      zipNavLastVisibleTime = Date.now();
       zipNav.classList.add("visible");
     }
-    if (zipIndicator) {
-      if (isDesktop) {
-        zipIndicator.style.transform = "translateY(50px)"; 
-      } else {
-        zipIndicator.style.transform = ""; 
-      }
-    }
   } else {
-    if (zipNav) zipNav.classList.remove("visible");
-    if (zipIndicator) {
-      if (isDesktop) {
-        zipIndicator.style.transform = "translateY(0px)";
-      } else {
-        zipIndicator.style.transform = "";
-      }
+    if (zipNav) {
+      zipNav.classList.remove("visible");
     }
   }
 }
@@ -61,23 +66,25 @@ export function updateZipNavVisibility(e) {
 }
 
 export async function openZipGallery(zipUrl, filename, cachedBlob = null) {
-  if (state.currentZipObjectUrls && state.currentZipObjectUrls.length > 0) {
-    state.currentZipObjectUrls.forEach((url) => URL.revokeObjectURL(url));
-    state.currentZipObjectUrls = [];
-  }
+  closeZipGallery();
+  activeZipAbortController = new AbortController();
+  const signal = activeZipAbortController.signal;
+
   setZipNavVisible(false, true);
   if (zipViewer) zipViewer.classList.remove("hidden");
   if (zipTitle) zipTitle.textContent = filename;
   if (zipIndicator) zipIndicator.textContent = "";
-  if (zipContent)
-    zipContent.innerHTML =
-      '<div id="zip-progress-text" style="color:white; margin: auto; text-align: center;">Connecting...</div>';
+  if (zipContent) {
+    zipContent.innerHTML = '<div id="zip-progress-text"></div>';
+    const pt = document.getElementById("zip-progress-text");
+    renderArchiveProgress(pt, "Connecting...", null, filename);
+  }
 
   try {
     let blob = cachedBlob;
 
     if (!blob) {
-      const response = await fetch(zipUrl);
+      const response = await fetch(zipUrl, { signal });
       if (!response.ok) throw new Error("Network response was not ok");
 
       const contentLength = response.headers.get("content-length");
@@ -98,16 +105,16 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null) {
           const elapsed = (Date.now() - startTime) / 1000;
           const speed = elapsed > 0 ? formatBytes(loaded / elapsed) + "/s" : "...";
           const percent = Math.round((loaded / total) * 100);
-          progressText.innerHTML = `Downloading Archive...<br><br><span style="font-size:1.5rem">${percent}%</span><br><br>${formatBytes(loaded)} / ${formatBytes(total)}<br>${speed}`;
+          renderArchiveProgress(progressText, "Downloading Archive...", percent, filename, formatBytes(loaded), formatBytes(total), speed);
         } else if (progressText) {
-          progressText.innerHTML = `Downloading Archive...<br><br>${formatBytes(loaded)} downloaded`;
+          renderArchiveProgress(progressText, "Downloading Archive...", null, filename, formatBytes(loaded));
         }
       }
       blob = new Blob(chunks);
     }
 
     const progressText = document.getElementById("zip-progress-text");
-    if (progressText) progressText.innerHTML = "Extracting files...";
+    if (progressText) renderArchiveProgress(progressText, "Extracting files...", null, filename);
 
     if (!window.JSZip) throw new Error("JSZip not loaded");
     const zip = await window.JSZip.loadAsync(blob);
@@ -215,6 +222,7 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null) {
       }, 50);
     }
   } catch (err) {
+    if (signal && signal.aborted) return;
     console.error(err);
     if (zipTitle) zipTitle.textContent = "Error";
     if (zipIndicator) zipIndicator.textContent = "";
@@ -224,5 +232,3 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null) {
     }
   }
 }
-
-export function preloadUpcomingZipMedia() {}
