@@ -38,8 +38,10 @@ export function showMediaUnavailableWarning(container, optionsOrType = "media", 
     ? `Rate limited by ${siteName} (DDoS-Guard / Too Many Requests). Please wait a moment before retrying.`
     : `This file has not yet been imported to ${siteName}, or the server is busy/unavailable.`);
 
+  container.style.pointerEvents = "auto";
+
   container.innerHTML = `
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; gap: 8px; padding: 20px; text-align: center; background: rgba(0,0,0,0.6); border-radius: 12px; box-sizing: border-box;">
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; gap: 8px; padding: 20px; text-align: center; background: rgba(0,0,0,0.6); border-radius: 12px; box-sizing: border-box; pointer-events: auto;">
       <span style="color: #ff5555; font-size: 2.2rem; font-weight: 800; font-family: monospace; letter-spacing: 1px; line-height: 1;">${escapeHtml(String(status))}</span>
       <span style="color: #ffb86c; font-size: 1.2rem; font-weight: bold;">${isRateLimited ? "Too Many Requests" : (type === "zip" ? "Archive" : "Media") + " Unavailable"}</span>
       ${file ? `<span style="color: #ddd; font-size: 0.9rem; max-width: 85vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; font-family: monospace;">${escapeHtml(file)}</span>` : ""}
@@ -47,7 +49,7 @@ export function showMediaUnavailableWarning(container, optionsOrType = "media", 
         ${subText}
       </span>
       ${retryFn ? `
-        <button class="retry-media-btn" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.15); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 8px; padding: 6px 14px; font-size: 0.9rem; font-weight: bold; cursor: pointer; margin-top: 6px; transition: background 0.2s;">
+        <button class="retry-media-btn" type="button" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.15); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 8px; padding: 7px 16px; font-size: 0.95rem; font-weight: bold; cursor: pointer; margin-top: 6px; transition: background 0.2s, transform 0.1s; pointer-events: auto !important; position: relative; z-index: 60; user-select: none;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg> Retry
         </button>
       ` : ""}
@@ -58,9 +60,16 @@ export function showMediaUnavailableWarning(container, optionsOrType = "media", 
     const btn = container.querySelector(".retry-media-btn");
     if (btn) {
       btn.addEventListener("click", (e) => {
+        e.preventDefault();
         e.stopPropagation();
         retryFn();
       });
+      btn.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+      });
+      btn.addEventListener("touchstart", (e) => {
+        e.stopPropagation();
+      }, { passive: true });
       btn.addEventListener("mouseenter", () => {
         btn.style.background = "rgba(255, 255, 255, 0.25)";
       });
@@ -130,8 +139,14 @@ export function getServicePostUrl(service, userId, postId) {
     return `https://${domain}/${s}/user/${uid}/announcements`;
   }
 
-  if (state.currentFeedEndpoint && state.currentFeedEndpoint.includes("/dms")) {
+  const isDmFeed = state.currentFeedEndpoint && state.currentFeedEndpoint.includes("/dms");
+  const isCumDm = state.currentSite === "cum" && (isDmFeed || (postId && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(postId)));
+
+  if (isDmFeed || isCumDm) {
     if (state.currentSite === "cum") {
+      if (postId) {
+        return `https://${domain}/creators/${s}/${uid}/dm/${pid}`;
+      }
       return `https://${domain}/creators/${s}/${uid}/dms`;
     }
     return `https://${domain}/${s}/user/${uid}/dms`;
@@ -178,6 +193,7 @@ export function stopProgress() {
  */
 export function renderMediaProgress(container, status = "Loading...", percent = null, filename = "", loadedStr = "", totalStr = "") {
   if (!container) return;
+  container.style.pointerEvents = "none";
   const pctText = (percent !== null && percent !== undefined && !isNaN(percent)) ? ` ${percent}%` : "";
   const sizeText = loadedStr && totalStr ? `${loadedStr} / ${totalStr}` : (loadedStr || totalStr || "");
 
@@ -200,6 +216,7 @@ export function renderMediaProgress(container, status = "Loading...", percent = 
  */
 export function renderArchiveProgress(container, status = "Loading...", percent = null, title = "", loadedStr = "", totalStr = "", extraDetail = "") {
   if (!container) return;
+  container.style.pointerEvents = "none";
   const pctText = (percent !== null && percent !== undefined && !isNaN(percent)) ? ` ${percent}%` : "";
   const sizeText = loadedStr && totalStr ? `${loadedStr} / ${totalStr}` : (loadedStr || totalStr || "");
 

@@ -54,7 +54,7 @@ export function initGestures() {
   if (feed) {
     feed.addEventListener("scroll", (e) => {
       if (!isResizing) {
-        const h = window.innerHeight || 1;
+        const h = (feed && feed.clientHeight) || window.innerHeight || 1;
         activeCardIndex = Math.round(feed.scrollTop / h);
       }
 

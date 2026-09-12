@@ -787,7 +787,13 @@ body.nav-visible .carousel-indicator {
   z-index: 50;
   text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
   font-family: monospace;
-  pointer-events: none !important;
+  pointer-events: none;
+}
+
+.media-progress:has(.retry-media-btn),
+.media-progress .retry-media-btn,
+.retry-media-btn {
+  pointer-events: auto !important;
 }
 
 #nav-back.hidden,

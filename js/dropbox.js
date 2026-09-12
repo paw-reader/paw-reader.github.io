@@ -45,6 +45,7 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
         syncCarouselClones(item);
       });
       const triggerRetry = () => {
+        item.querySelectorAll("video, audio, img.post-media").forEach((el) => el.remove());
         delete item.dataset.loaded;
         handleDropboxFileCard(item, url, postTitle, filename, progressOverlay, signal);
       };
@@ -62,6 +63,7 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
         syncCarouselClones(item);
       };
       const triggerRetry = () => {
+        item.querySelectorAll("video, audio, img.post-media").forEach((el) => el.remove());
         delete item.dataset.loaded;
         handleDropboxFileCard(item, url, postTitle, filename, progressOverlay, signal);
       };

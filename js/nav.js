@@ -1,6 +1,7 @@
 import { PROXY_URL, state } from "./state.js";
 import { buildCreatorCard } from "./creators.js";
 import { resetFeed, fetchPosts } from "./feed.js";
+import { escapeHtml } from "./utils.js";
 
 export const welcomeScreen = document.getElementById("welcome-screen");
 export const creatorsView = document.getElementById("creators-view");
@@ -108,10 +109,15 @@ export function updateSiteSpecificUI() {
 
   const sortDirBtn = document.getElementById("creator-sort-dir");
   if (sortDirBtn) {
-    sortDirBtn.innerHTML =
-      state.creatorSortDir === "asc"
-        ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>'
-        : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>';
+    if (state.currentSite === "cum") {
+      sortDirBtn.style.display = "none";
+    } else {
+      sortDirBtn.style.display = "";
+      sortDirBtn.innerHTML =
+        state.creatorSortDir === "asc"
+          ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>'
+          : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>';
+    }
   }
 
   const creatorsTitle = document.getElementById("creators-title");
@@ -458,8 +464,29 @@ export function updateNavTabs(creator) {
           }
         };
 
-        if (state.currentSite === "kemono" || state.currentSite === "pawchive") {
-          const endpoint = `${PROXY_URL}/${state.currentSite}/${creator.service}/user/${creator.id}/recommended`;
+        if (state.currentSite === "kemono") {
+          const endpoint = `${PROXY_URL}/kemono/api/v1/${creator.service}/user/${creator.id}/recommended`;
+          fetch(endpoint, { headers: { Accept: "text/css" } })
+            .then((res) => {
+              if (!res.ok) throw new Error("Not found");
+              return res.json();
+            })
+            .then((data) => {
+              const list = Array.isArray(data) ? data : (data.creators || []);
+              renderCreators(list);
+            })
+            .catch(() => {
+              feed.innerHTML = "";
+              const placeholder = document.createElement("div");
+              placeholder.style.cssText = `text-align:center; padding: ${placeholderPadding}; color: #aaa; font-size: 1.2rem; width: 100%; box-sizing: border-box;`;
+              placeholder.textContent = `No similar creators found for this profile.`;
+              feed.appendChild(placeholder);
+            });
+          return;
+        }
+
+        if (state.currentSite === "pawchive") {
+          const endpoint = `${PROXY_URL}/pawchive/${creator.service}/user/${creator.id}/recommended`;
           fetch(endpoint)
             .then((res) => {
               if (!res.ok) throw new Error("Proxy error or not found");
@@ -526,6 +553,75 @@ export function updateNavTabs(creator) {
             placeholder.textContent = `Similar artists are not yet supported for this source.`;
             feed.appendChild(placeholder);
           });
+      } else if (tab === "Tags") {
+        const isMobile = window.innerWidth <= 600 || window.innerHeight <= 500;
+        const placeholderPadding = isMobile ? "120px 20px 40px 20px" : "80px 20px 40px 20px";
+
+        feed.innerHTML = `<div style="text-align:center; padding: ${placeholderPadding}; color: #aaa; font-size: 1.2rem; width: 100%; box-sizing: border-box;">Loading tags...</div>`;
+
+        const endpoint = `${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/tags`;
+        fetch(endpoint, { headers: { Accept: "text/css" } })
+          .then((res) => {
+            if (!res.ok) throw new Error("Failed to fetch tags");
+            return res.json();
+          })
+          .then((data) => {
+            const rawTags = Array.isArray(data) ? data : (data.tags || []);
+            feed.innerHTML = "";
+            if (rawTags.length === 0) {
+              const placeholder = document.createElement("div");
+              placeholder.style.cssText = `text-align:center; padding: ${placeholderPadding}; color: #aaa; font-size: 1.2rem; width: 100%; box-sizing: border-box;`;
+              placeholder.textContent = `No tags found for this creator.`;
+              feed.appendChild(placeholder);
+              return;
+            }
+
+            const container = document.createElement("div");
+            const pad = isMobile ? "120px 20px 60px 20px" : "80px 20px 60px 20px";
+            container.style.cssText = `padding: ${pad}; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 900px; margin: 0 auto; box-sizing: border-box;`;
+
+            rawTags.forEach((item) => {
+              const tagText = typeof item === "string" ? item : (item.tag || item.name || "");
+              const postCount = typeof item === "object" && item.post_count !== undefined ? item.post_count : null;
+              if (!tagText) return;
+
+              const tagBtn = document.createElement("button");
+              tagBtn.style.cssText = `
+                display: inline-flex; align-items: center; gap: 8px;
+                padding: 8px 16px; border-radius: 20px;
+                background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15);
+                color: #fff; font-size: 0.95rem; cursor: pointer; transition: all 0.2s;
+              `;
+              tagBtn.innerHTML = `<span>#${escapeHtml(tagText)}</span>${postCount !== null ? `<span style="font-size:0.8rem; opacity:0.6; background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:10px;">${postCount}</span>` : ""}`;
+
+              tagBtn.onmouseenter = () => {
+                tagBtn.style.background = "rgba(0, 123, 255, 0.5)";
+                tagBtn.style.borderColor = "rgba(0, 123, 255, 0.8)";
+              };
+              tagBtn.onmouseleave = () => {
+                tagBtn.style.background = "rgba(255, 255, 255, 0.08)";
+                tagBtn.style.borderColor = "rgba(255, 255, 255, 0.15)";
+              };
+
+              tagBtn.addEventListener("click", () => {
+                resetFeed();
+                state.currentFeedEndpoint = `${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/posts?tag=${encodeURIComponent(tagText)}`;
+                Array.from(navTabs.children).forEach((c) => (c.style.background = ""));
+                fetchPosts();
+              });
+
+              container.appendChild(tagBtn);
+            });
+
+            feed.appendChild(container);
+          })
+          .catch(() => {
+            feed.innerHTML = "";
+            const placeholder = document.createElement("div");
+            placeholder.style.cssText = `text-align:center; padding: ${placeholderPadding}; color: #aaa; font-size: 1.2rem; width: 100%; box-sizing: border-box;`;
+            placeholder.textContent = `Failed to load tags for this creator.`;
+            feed.appendChild(placeholder);
+          });
       } else {
         const isMobile = window.innerWidth <= 600 || window.innerHeight <= 500;
         const placeholderPadding = isMobile ? "120px 20px 40px 20px" : "80px 20px 40px 20px";
@@ -538,7 +634,7 @@ export function updateNavTabs(creator) {
 
     if (
       (state.currentSite === "kemono" || state.currentSite === "pawchive") &&
-      (tab === "DMs" || tab === "Announcements" || tab === "Fancards" || tab === "Linked Accounts")
+      (tab === "DMs" || tab === "Announcements" || tab === "Fancards" || tab === "Linked Accounts" || tab === "Tags")
     ) {
       const srv = (creator.service || "").toLowerCase();
 
@@ -552,7 +648,10 @@ export function updateNavTabs(creator) {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-            fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/links`, { signal: controller.signal })
+            fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/links`, {
+              signal: controller.signal,
+              headers: { Accept: "text/css" }
+            })
               .then((res) => (res.ok ? res.json() : []))
               .then((arr) => {
                 clearTimeout(timeoutId);
@@ -623,11 +722,14 @@ export function updateNavTabs(creator) {
                   creator[cacheKey] = false;
                 });
             } else {
-              fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}?limit=1`, { signal: controller.signal })
+              fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}?limit=1`, {
+                signal: controller.signal,
+                headers: { Accept: "text/css" }
+              })
                 .then((res) => (res.ok ? res.json() : []))
                 .then((data) => {
                   clearTimeout(timeoutId);
-                  const arr = data.posts || data.announcements || data.dms || data.fancards || (Array.isArray(data) ? data : []);
+                  const arr = data.posts || data.announcements || data.dms || data.fancards || (data.tags || (Array.isArray(data) ? data : []));
                   if (arr.length > 0) {
                     btn.style.display = "";
                     creator[cacheKey] = true;

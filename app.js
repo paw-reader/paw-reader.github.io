@@ -217,7 +217,8 @@ if (navHome) {
     state.creatorPage = 1;
     if (searchInput) searchInput.value = '';
     if (sortSelect) sortSelect.value = 'popularity';
-    if (contentFilterSelect) contentFilterSelect.value = 'all';
+    if (contentFilterSelect) contentFilterSelect.value = state.currentSite === 'cum' ? 'content' : 'all';
+    if (genderFilterSelect) genderFilterSelect.value = 'all';
     if (serviceFilterSelect) {
       const checkboxes = serviceFilterSelect.querySelectorAll('input[type="checkbox"]');
       checkboxes.forEach(cb => cb.checked = false);
@@ -277,30 +278,8 @@ let searchTimeout;
 if (searchInput) {
   searchInput.addEventListener('input', () => {
     clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(async () => {
+    searchTimeout = setTimeout(() => {
       state.creatorPage = 1;
-      
-      if (state.currentSite === 'cum' && searchInput.value.trim().length > 1) {
-        try {
-          const res = await fetch(`${PROXY_URL}/cum/api/v1/creators?q=${encodeURIComponent(searchInput.value.trim())}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.creators) {
-              const existingIds = new Set(state.allCreators.map(c => c.id));
-              data.creators.forEach(c => {
-                if (c.service === 'discord') return;
-                if (!existingIds.has(c.id)) {
-                  c.allPlatforms = [c];
-                  state.allCreators.push(c);
-                }
-              });
-            }
-          }
-        } catch (e) {
-          console.warn(e);
-        }
-      }
-      
       filterAndSortCreators();
     }, 400);
   });

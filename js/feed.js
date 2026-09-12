@@ -229,8 +229,20 @@ export const feedObserver = new IntersectionObserver(
   { root: feed, rootMargin: "0px", threshold: 0.1 }
 );
 
-export function detachMedia(item) {
-  if (!item || !item.dataset.loaded) return;
+export function detachMedia(item, force = false) {
+  if (!item || (!force && !item.dataset.loaded)) return;
+
+  if (item._upgradeTimer) {
+    clearTimeout(item._upgradeTimer);
+    item._upgradeTimer = null;
+  }
+
+  if (item._fullImg) {
+    item._fullImg.onload = null;
+    item._fullImg.onerror = null;
+    item._fullImg.src = "";
+    item._fullImg = null;
+  }
 
   if (item._abortController) {
     try {
@@ -280,7 +292,7 @@ export function recycleOffscreenCards() {
   const cards = feed.querySelectorAll(".post-card");
   if (cards.length === 0) return;
 
-  const h = window.innerHeight || 1;
+  const h = (feed && feed.clientHeight) || window.innerHeight || 1;
   const currentCardIndex = Math.round(feed.scrollTop / h);
   const KEEP_WINDOW_IMG = 5;
   const KEEP_WINDOW_VIDEO = 2;
@@ -336,8 +348,7 @@ export async function loadMediaWithProgress(item) {
   const filename = item.dataset.originalName || (item.dataset.path || url).split("/").pop() || "media";
 
   const triggerRetry = () => {
-    delete item.dataset.loaded;
-    detachMedia(item);
+    detachMedia(item, true);
     item.dataset.loaded = "true";
     loadMediaWithProgress(item);
   };
@@ -544,20 +555,12 @@ export async function loadMediaWithProgress(item) {
         if (!sizeStr) {
           try {
             const headRes = await fetch(url, { method: "HEAD" });
-            if (headRes.status === 204 || headRes.status === 404) {
-              throw new Error("404_NOT_FOUND");
-            }
             if (headRes.ok) {
               const cl = headRes.headers.get("content-length");
               if (cl) sizeStr = formatBytes(parseInt(cl, 10));
             }
-          } catch (headErr) {
-            if (headErr.message === "404_NOT_FOUND") {
-              container.innerHTML = "";
-              if (progressOverlay) showMediaUnavailableWarning(progressOverlay, { type: "zip", filename: zipFilename, errorStatus: "404", onRetry: triggerRetry });
-              if (progressOverlay) container.appendChild(progressOverlay);
-              return;
-            }
+          } catch (_) {
+            // Origin or proxy may not support HEAD requests; continue to fallback tree/button
           }
         }
 
@@ -842,8 +845,9 @@ export async function loadMediaWithProgress(item) {
       video.style.display = "none";
       const path = item.dataset.path;
 
-      // Fallback to the proxied thumbnail if the video fails to load
-      if (path && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+      // Fallback to the proxied thumbnail only if an image thumbnail exists
+      const isImagePath = path && /\.(jpe?g|png|webp|gif)$/i.test(path);
+      if (isImagePath && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
         const thumbImg = document.createElement("img");
         thumbImg.className = "post-media";
         thumbImg.loading = "eager";
@@ -887,24 +891,36 @@ export async function loadMediaWithProgress(item) {
   }
 
   const path = item.dataset.path;
-  const isKemono = state.currentSite === "kemono";
+  const isImageSite = state.currentSite === "kemono" || state.currentSite === "pawchive";
+  const isImageFile = path && /\.(jpe?g|png|webp|gif)$/i.test(path);
 
-  if (isKemono && path) {
+  if (isImageSite && isImageFile) {
     // Progressive Loading: Load edge-cached high-quality thumbnail immediately (<300ms)
-    const thumbUrl = `${PROXY_URL}/kemono/thumbnail/data${path}`;
+    const thumbUrl = `${PROXY_URL}/${state.currentSite}/thumbnail/data${path}`;
     img.src = thumbUrl;
 
     img.onload = () => {
       if (progressOverlay) progressOverlay.style.display = "none";
       syncCarouselClones(item);
 
-      // Attempt to upgrade to full-res file in background without blocking UI
+      // Attempt to upgrade to full-res file only if user pauses on the card (prevent network stampede)
       if (url && url !== thumbUrl) {
-        const fullImg = new Image();
-        fullImg.src = url;
-        fullImg.onload = () => {
-          img.src = url;
-        };
+        if (item._upgradeTimer) clearTimeout(item._upgradeTimer);
+        item._upgradeTimer = setTimeout(() => {
+          if (!item.isConnected) return;
+          const fullImg = new Image();
+          item._fullImg = fullImg;
+          fullImg.onload = () => {
+            if (item.isConnected && item._fullImg === fullImg) {
+              img.src = url;
+              item._fullImg = null;
+            }
+          };
+          fullImg.onerror = () => {
+            if (item._fullImg === fullImg) item._fullImg = null;
+          };
+          fullImg.src = url;
+        }, 1200);
       }
     };
 
@@ -932,7 +948,7 @@ export async function loadMediaWithProgress(item) {
     img.onerror = () => {
       const p = item.dataset.path;
       // If the full-res file fails or is blocked, try the thumbnail through the worker proxy
-      if (p && !img.dataset.triedThumb && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+      if (p && /\.(jpe?g|png|webp|gif)$/i.test(p) && !img.dataset.triedThumb && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
         img.dataset.triedThumb = "true";
         img.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${p}`;
         return;

@@ -28,8 +28,166 @@ async function fetchWithRetry(url, options = {}, retries = 2) {
   }
 }
 
+let coomerFetchSeq = 0;
+
+async function fetchAndRenderCoomerCreators() {
+  const seq = ++coomerFetchSeq;
+  if (creatorsLoading) {
+    creatorsLoading.textContent = "Loading creators...";
+    creatorsLoading.classList.add("active");
+  }
+  startProgress();
+
+  const query = searchInput ? searchInput.value.trim() : "";
+  const sortVal = sortSelect ? sortSelect.value : "popularity";
+  const contentFilter = contentFilterSelect ? contentFilterSelect.value : "content";
+  const genderFilter = genderFilterSelect ? genderFilterSelect.value : "all";
+
+  const checkedServices = serviceFilterSelect
+    ? Array.from(serviceFilterSelect.querySelectorAll("input:checked")).map((cb) => cb.value)
+    : [];
+
+  const sortMap = {
+    popularity: "bookmarked",
+    "followers-desc": "bookmarked",
+    "followers-asc": "bookmarked",
+    indexed: "indexed",
+    updated: "updated",
+    alphabetical: "name",
+    "name-asc": "name",
+    "name-desc": "name",
+    service: "service",
+    dms: "dm_count",
+    posts: "post_count"
+  };
+  const apiSort = sortMap[sortVal] || "bookmarked";
+
+  const params = new URLSearchParams();
+  const limit = state.creatorsPerPage || 50;
+  params.set("limit", limit.toString());
+
+  const page = Math.max(1, state.creatorPage || 1);
+  const offset = (page - 1) * limit;
+  params.set("o", offset.toString());
+  params.set("sort", apiSort);
+
+  if (query) {
+    params.set("q", query);
+  }
+
+  if (contentFilter === "content") {
+    params.set("content", "imported");
+  } else if (contentFilter === "empty") {
+    params.set("content", "empty");
+  }
+
+  if (genderFilter && genderFilter !== "all") {
+    params.set("gender", genderFilter);
+  }
+
+  if (checkedServices.length === 1) {
+    params.set("service", checkedServices[0]);
+  }
+
+  try {
+    const url = `${PROXY_URL}/cum/api/v1/creators?${params.toString()}`;
+    const res = await fetchWithRetry(url);
+    if (!res.ok) throw new Error(`Failed to fetch creators: ${res.status} ${res.statusText}`);
+    const data = await res.json();
+    if (seq !== coomerFetchSeq) return;
+
+    const total = typeof data.total === "number" ? data.total : (data.creators ? data.creators.length : 0);
+    const rawCreators = data.creators || [];
+
+    const displayedCreators = (checkedServices.length > 1 && checkedServices.length < 3)
+      ? rawCreators.filter((c) => checkedServices.includes(c.service))
+      : rawCreators;
+
+    const creators = displayedCreators.map((c) => ({
+      ...c,
+      allPlatforms: [c]
+    }));
+
+    const existingIds = new Set(state.allCreators.map((c) => `${c.service}:${c.id}`));
+    creators.forEach((c) => {
+      if (!existingIds.has(`${c.service}:${c.id}`)) {
+        state.allCreators.push(c);
+      }
+    });
+
+    state.filteredCreators = creators;
+
+    if (creatorsList) {
+      creatorsList.innerHTML = "";
+      if (creators.length === 0) {
+        creatorsList.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: #888; padding: 40px;">No creators found.</div>';
+      } else {
+        creators.forEach((creator) => {
+          creatorsList.appendChild(buildCreatorCard(creator, checkedServices));
+        });
+      }
+    }
+
+    if (paginationContainer) {
+      paginationContainer.innerHTML = "";
+    }
+    const totalPages = Math.ceil(total / limit);
+    renderPagination(totalPages);
+  } catch (err) {
+    if (seq !== coomerFetchSeq) return;
+    console.error("Error fetching creators:", err);
+    if (creatorsList) {
+      creatorsList.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: #ff6b6b; padding: 40px;">Failed to load creators. Please try again.</div>';
+    }
+    if (paginationContainer) {
+      paginationContainer.innerHTML = "";
+    }
+  } finally {
+    if (seq === coomerFetchSeq) {
+      if (creatorsLoading) creatorsLoading.classList.remove("active");
+      stopProgress();
+    }
+  }
+}
+
 export async function loadCreators() {
-  if (state.allCreators.length > 0 && state.loadedCreatorsSite === state.currentSite) return;
+  if (state.currentSite === "cum") {
+    state.loadedCreatorsSite = "cum";
+    if (serviceFilterSelect) {
+      const services = ["fansly", "onlyfans", "patreon"];
+      const checkedBoxes = Array.from(serviceFilterSelect.querySelectorAll("input:checked")).map((cb) => cb.value);
+      serviceFilterSelect.innerHTML = "";
+      services.forEach((service) => {
+        const label = document.createElement("label");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = service;
+        if (checkedBoxes.includes(service)) {
+          cb.checked = true;
+        }
+        cb.addEventListener("click", () => {
+          if (cb.checked) {
+            serviceFilterSelect.querySelectorAll("input[type='checkbox']").forEach((other) => {
+              if (other !== cb) other.checked = false;
+            });
+          }
+        });
+        const text = document.createTextNode(" " + service.charAt(0).toUpperCase() + service.slice(1));
+        label.appendChild(cb);
+        label.appendChild(text);
+        serviceFilterSelect.appendChild(label);
+      });
+    }
+    await filterAndSortCreators();
+    return;
+  }
+
+  if (state.allCreators.length > 0 && state.loadedCreatorsSite === state.currentSite) {
+    if (creatorsList && creatorsList.children.length === 0) {
+      renderCreatorsPage();
+    }
+    return;
+  }
   state.loadedCreatorsSite = state.currentSite;
   state.allCreators = [];
   if (creatorsList) creatorsList.innerHTML = "";
@@ -37,28 +195,9 @@ export async function loadCreators() {
   startProgress();
 
   try {
-    let rawCreators = [];
-    if (state.currentSite === "cum") {
-      const moxxyServices = ["onlyfans", "fansly", "patreon"];
-      const results = await Promise.allSettled(
-        moxxyServices.map((s, idx) =>
-          new Promise((resolve) => setTimeout(resolve, idx * 100)).then(() =>
-            fetchWithRetry(`${PROXY_URL}/${state.currentSite}/api/v1/creators?service=${s}&limit=50`).then((res) =>
-              res.ok ? res.json() : null
-            )
-          )
-        )
-      );
-      results.forEach((r) => {
-        if (r.status === "fulfilled" && r.value && r.value.creators) {
-          rawCreators.push(...r.value.creators);
-        }
-      });
-    } else {
-      const res = await fetchWithRetry(`${PROXY_URL}/${state.currentSite}/api/v1/creators`);
-      if (!res.ok) throw new Error("Failed to fetch creators: " + res.status + " " + res.statusText);
-      rawCreators = await res.json();
-    }
+    const res = await fetchWithRetry(`${PROXY_URL}/${state.currentSite}/api/v1/creators`);
+    if (!res.ok) throw new Error("Failed to fetch creators: " + res.status + " " + res.statusText);
+    const rawCreators = await res.json();
     const uniqueCreators = new Map();
     const nameToRelationId = new Map();
 
@@ -139,6 +278,10 @@ export async function loadCreators() {
 }
 
 export function filterAndSortCreators() {
+  if (state.currentSite === "cum") {
+    fetchAndRenderCoomerCreators();
+    return;
+  }
   const query = searchInput ? searchInput.value.toLowerCase() : "";
   const sort = sortSelect ? sortSelect.value : "popularity";
   const contentFilter = contentFilterSelect ? contentFilterSelect.value : "content";
@@ -377,7 +520,11 @@ export function createPageBtn(pageNum) {
   }
   btn.addEventListener("click", () => {
     state.creatorPage = pageNum;
-    renderCreatorsPage();
+    if (state.currentSite === "cum") {
+      filterAndSortCreators();
+    } else {
+      renderCreatorsPage();
+    }
     const cv = document.getElementById("creators-view");
     if (cv) cv.scrollTop = 0;
   });
