@@ -12,7 +12,7 @@ import {
 } from "./utils.js";
 import { updateNavTabs, updateNavVisibility, closeAllPostInfo, wrapCarousel } from "./nav.js";
 import { openZipGallery } from "./zip.js";
-import { detectExternalGalleries, renderExternalFileCard, escapeHtml } from "./externalGalleries.js";
+import { detectExternalGalleries, renderExternalFileCard, isDropboxFolderUrl, escapeHtml } from "./externalGalleries.js";
 
 export const feed = document.getElementById("feed");
 export const feedLoading = document.getElementById("feed-loading");
@@ -281,7 +281,7 @@ export function detachMedia(item, force = false) {
   if (progressOverlay) {
     progressOverlay.style.display = "flex";
     const filename = item.dataset.originalName || (item.dataset.path || "").split("/").pop() || "media";
-    renderMediaProgress(progressOverlay, "Loading...", 0, filename, "Waiting", "");
+    renderMediaProgress(progressOverlay, "Loading...", null, filename, "", "");
   }
 
   delete item.dataset.loaded;
@@ -748,7 +748,7 @@ export async function loadMediaWithProgress(item) {
       renderMediaProgress(progressOverlay, statusText, percent, filename, loadedStr, totalStr);
     };
 
-    renderMediaProgress(progressOverlay, "Loading...", 0, filename, "0 B", "...");
+    renderMediaProgress(progressOverlay, "Loading...", null, filename, "", "");
 
     const video = document.createElement(type === "video" ? "video" : "audio");
     video.className = "post-media";
@@ -1217,7 +1217,14 @@ export function createPostCard(post) {
       });
     });
     extGalleries.dropbox.forEach((url, i) => {
-      const label = extGalleries.dropbox.length > 1 ? `Dropbox Archive ${i + 1}` : "Dropbox Archive";
+      let label;
+      if (isDropboxFolderUrl(url)) {
+        label = extGalleries.dropbox.length > 1 ? `Dropbox Archive ${i + 1}` : "Dropbox Archive";
+      } else {
+        const pathOnly = url.split("?")[0].split("#")[0];
+        const lastSeg = pathOnly.split("/").filter(Boolean).pop() || "";
+        label = decodeURIComponent(lastSeg) || (extGalleries.dropbox.length > 1 ? `Dropbox File ${i + 1}` : "Dropbox File");
+      }
       allMedia.push({
         path: url,
         name: label,
@@ -1423,11 +1430,12 @@ export function createPostCard(post) {
       }
 
       const progressOverlay = document.createElement("div");
-      progressOverlay.className = "media-progress";
+      progressOverlay.className = "media-progress media-loading";
       item.appendChild(progressOverlay);
 
       const mediaName = mediaObj.name || mediaPath.split("/").pop() || "media";
-      renderMediaProgress(progressOverlay, "Loading...", 0, mediaName, "0 B", "...");
+      const sizeLabel = mediaObj.bytes ? formatBytes(mediaObj.bytes) : (mediaObj.size ? formatBytes(mediaObj.size) : "");
+      renderMediaProgress(progressOverlay, "Loading...", null, mediaName, sizeLabel, "");
 
       carousel.appendChild(item);
       mediaObserver.observe(item);

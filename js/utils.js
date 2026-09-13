@@ -17,12 +17,28 @@ export function showMediaUnavailableWarning(container, optionsOrType = "media", 
   let file = "";
   let status = "404";
   let retryFn = null;
+  let externalUrl = "";
 
   if (typeof optionsOrType === "object" && optionsOrType !== null) {
     type = optionsOrType.type || "media";
     file = optionsOrType.filename || "";
-    status = optionsOrType.errorStatus || "404";
     retryFn = optionsOrType.onRetry || null;
+    externalUrl = optionsOrType.externalUrl || "";
+
+    const rawMsg = optionsOrType.message || (optionsOrType.error && optionsOrType.error.message) || "";
+    const msgMatch = String(rawMsg).match(/HTTP\s+(\d{3})/i) || String(rawMsg).match(/status\s+(\d{3})/i);
+
+    if (optionsOrType.error && optionsOrType.error.status) {
+      status = String(optionsOrType.error.status);
+    } else if (msgMatch) {
+      status = msgMatch[1];
+    } else if (optionsOrType.errorStatus && optionsOrType.errorStatus !== "404") {
+      status = String(optionsOrType.errorStatus);
+    } else if (optionsOrType.status) {
+      status = String(optionsOrType.status);
+    } else {
+      status = optionsOrType.errorStatus || "404";
+    }
   } else {
     type = optionsOrType || "media";
     file = filename || "";
@@ -33,25 +49,39 @@ export function showMediaUnavailableWarning(container, optionsOrType = "media", 
   const displayNames = { pawchive: "Pawchive", kemono: "Kemono", cum: "Coomer" };
   const siteName = displayNames[state.currentSite] || state.currentSite;
   const isRateLimited = String(status) === "429";
+  const isServerError = ["500", "502", "503", "504"].includes(String(status));
   const customMessage = (typeof optionsOrType === "object" && optionsOrType !== null) ? optionsOrType.message : "";
   const subText = customMessage || (isRateLimited
     ? `Rate limited by ${siteName} (DDoS-Guard / Too Many Requests). Please wait a moment before retrying.`
-    : `This file has not yet been imported to ${siteName}, or the server is busy/unavailable.`);
+    : (isServerError
+      ? `The remote server encountered an error (${status}). Please try again or open the link directly.`
+      : `This file has not yet been imported to ${siteName}, or the server is busy/unavailable.`));
 
+  container.classList.remove("media-loading");
+  container.classList.add("media-error");
   container.style.pointerEvents = "auto";
 
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; gap: 8px; padding: 20px; text-align: center; background: rgba(0,0,0,0.6); border-radius: 12px; box-sizing: border-box; pointer-events: auto;">
       <span style="color: #ff5555; font-size: 2.2rem; font-weight: 800; font-family: monospace; letter-spacing: 1px; line-height: 1;">${escapeHtml(String(status))}</span>
-      <span style="color: #ffb86c; font-size: 1.2rem; font-weight: bold;">${isRateLimited ? "Too Many Requests" : (type === "zip" ? "Archive" : "Media") + " Unavailable"}</span>
+      <span style="color: #ffb86c; font-size: 1.2rem; font-weight: bold;">${isRateLimited ? "Too Many Requests" : (isServerError ? "Server Error" : (type === "zip" ? "Archive" : "Media") + " Unavailable")}</span>
       ${file ? `<span style="color: #ddd; font-size: 0.9rem; max-width: 85vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; font-family: monospace;">${escapeHtml(file)}</span>` : ""}
       <span style="color: #ccc; font-size: 0.95rem; font-weight: normal; max-width: 280px; line-height: 1.4;">
         ${subText}
       </span>
-      ${retryFn ? `
-        <button class="retry-media-btn" type="button" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.15); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 8px; padding: 7px 16px; font-size: 0.95rem; font-weight: bold; cursor: pointer; margin-top: 6px; transition: background 0.2s, transform 0.1s; pointer-events: auto !important; position: relative; z-index: 60; user-select: none;">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg> Retry
-        </button>
+      ${(retryFn || externalUrl) ? `
+        <div style="display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; justify-content: center;">
+          ${retryFn ? `
+            <button class="retry-media-btn" type="button" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.15); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 8px; padding: 7px 16px; font-size: 0.95rem; font-weight: bold; cursor: pointer; transition: background 0.2s, transform 0.1s; pointer-events: auto !important; position: relative; z-index: 2; user-select: none;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg> Retry
+            </button>
+          ` : ""}
+          ${externalUrl ? `
+            <a class="external-media-btn" href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.15); color: #fff; text-decoration: none; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 8px; padding: 7px 16px; font-size: 0.95rem; font-weight: bold; cursor: pointer; transition: background 0.2s, transform 0.1s; pointer-events: auto !important; position: relative; z-index: 2; user-select: none;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Open Link
+            </a>
+          ` : ""}
+        </div>
       ` : ""}
     </div>
   `;
@@ -75,6 +105,27 @@ export function showMediaUnavailableWarning(container, optionsOrType = "media", 
       });
       btn.addEventListener("mouseleave", () => {
         btn.style.background = "rgba(255, 255, 255, 0.15)";
+      });
+    }
+  }
+
+  if (externalUrl) {
+    const extBtn = container.querySelector(".external-media-btn");
+    if (extBtn) {
+      extBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+      extBtn.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+      });
+      extBtn.addEventListener("touchstart", (e) => {
+        e.stopPropagation();
+      }, { passive: true });
+      extBtn.addEventListener("mouseenter", () => {
+        extBtn.style.background = "rgba(255, 255, 255, 0.25)";
+      });
+      extBtn.addEventListener("mouseleave", () => {
+        extBtn.style.background = "rgba(255, 255, 255, 0.15)";
       });
     }
   }
@@ -193,9 +244,20 @@ export function stopProgress() {
  */
 export function renderMediaProgress(container, status = "Loading...", percent = null, filename = "", loadedStr = "", totalStr = "") {
   if (!container) return;
+  container.classList.remove("media-error");
+  container.classList.add("media-loading");
   container.style.pointerEvents = "none";
-  const pctText = (percent !== null && percent !== undefined && !isNaN(percent)) ? ` ${percent}%` : "";
-  const sizeText = loadedStr && totalStr ? `${loadedStr} / ${totalStr}` : (loadedStr || totalStr || "");
+  const showPct = percent !== null && percent !== undefined && !isNaN(percent) && (percent > 0 || (loadedStr && loadedStr !== "0 B" && loadedStr !== "Waiting"));
+  const pctText = showPct ? ` ${percent}%` : "";
+
+  let sizeText = "";
+  if (loadedStr && totalStr && totalStr !== "..." && loadedStr !== "Waiting") {
+    sizeText = `${loadedStr} / ${totalStr}`;
+  } else if (loadedStr && loadedStr !== "0 B" && loadedStr !== "Waiting") {
+    sizeText = loadedStr;
+  } else if (totalStr && totalStr !== "...") {
+    sizeText = totalStr;
+  }
 
   const filenameHtml = filename
     ? `<span style="font-size: 1rem; font-weight: normal; color: #ddd; max-width: 85vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; margin: 4px 0;">${escapeHtml(filename)}</span>`
@@ -217,8 +279,17 @@ export function renderMediaProgress(container, status = "Loading...", percent = 
 export function renderArchiveProgress(container, status = "Loading...", percent = null, title = "", loadedStr = "", totalStr = "", extraDetail = "") {
   if (!container) return;
   container.style.pointerEvents = "none";
-  const pctText = (percent !== null && percent !== undefined && !isNaN(percent)) ? ` ${percent}%` : "";
-  const sizeText = loadedStr && totalStr ? `${loadedStr} / ${totalStr}` : (loadedStr || totalStr || "");
+  const showPct = percent !== null && percent !== undefined && !isNaN(percent) && (percent > 0 || (loadedStr && loadedStr !== "0 B"));
+  const pctText = showPct ? ` ${percent}%` : "";
+
+  let sizeText = "";
+  if (loadedStr && totalStr && totalStr !== "...") {
+    sizeText = `${loadedStr} / ${totalStr}`;
+  } else if (loadedStr && loadedStr !== "0 B") {
+    sizeText = loadedStr;
+  } else if (totalStr && totalStr !== "...") {
+    sizeText = totalStr;
+  }
 
   const titleHtml = title
     ? `<div style="font-size: 1.05rem; font-weight: normal; color: #ddd; max-width: 85vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(title)}</div>`

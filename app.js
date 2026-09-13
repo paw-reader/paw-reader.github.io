@@ -34,10 +34,16 @@ import {
   closeZipViewer,
   zipHomeViewer,
   zipSettingsViewer,
+  zipInfoViewer,
+  zipFileInfoModal,
+  closeZipFileInfo,
   isZipNavInteractive,
   setZipNavVisible,
   updateZipNavVisibility,
-  closeZipGallery
+  closeZipGallery,
+  toggleZipFileInfoModal,
+  navigateFolder,
+  getActiveMediaItem
 } from './js/zip.js';
 import { initGestures } from './js/gestures.js';
 
@@ -354,6 +360,21 @@ if (zipHomeViewer) {
   });
 }
 
+if (zipInfoViewer) {
+  zipInfoViewer.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!isZipNavInteractive()) return;
+    toggleZipFileInfoModal();
+  });
+}
+
+if (closeZipFileInfo) {
+  closeZipFileInfo.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleZipFileInfoModal(false);
+  });
+}
+
 if (zipIndicator && zipContent) {
   zipIndicator.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -368,12 +389,44 @@ if (zipViewer) {
     if (
       e.target.tagName.toLowerCase() === 'button' ||
       e.target.closest('#zip-nav') ||
-      e.target.closest('#settings-menu')
+      e.target.closest('#settings-menu') ||
+      e.target.closest('.dropbox-browser-root') ||
+      e.target.closest('#zip-file-info-modal')
     ) {
       return;
     }
 
+    const modal = document.getElementById("zip-file-info-modal");
+    if (modal && modal.classList.contains("expanded")) {
+      modal.classList.remove("expanded");
+      return;
+    }
+
     if (e.target.id === 'zip-indicator' || e.target.closest('#zip-indicator')) {
+      setZipNavVisible(!state.zipNavManualVisible, true);
+      return;
+    }
+
+    // In 2D Matrix mode: tap left/right side of screen scrolls active folder row left/right
+    if (zipContent && zipContent.classList.contains('gallery-2d-mode')) {
+      const active = getActiveMediaItem();
+      if (active && active.folderRow) {
+        const x = e.clientX;
+        const w = window.innerWidth;
+        if (x < w * 0.2) {
+          active.folderRow.scrollTo({
+            left: Math.max(0, active.folderRow.scrollLeft - w),
+            behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth'
+          });
+          return;
+        } else if (x > w * 0.8) {
+          active.folderRow.scrollTo({
+            left: Math.min(active.folderRow.scrollWidth - w, active.folderRow.scrollLeft + w),
+            behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth'
+          });
+          return;
+        }
+      }
       setZipNavVisible(!state.zipNavManualVisible, true);
       return;
     }
@@ -399,6 +452,7 @@ if (zipViewer) {
 if (zipContent) {
   let zipScrollSettleTimer;
   zipContent.addEventListener('scroll', () => {
+    if (zipContent.classList.contains('gallery-2d-mode')) return;
     const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
     if (count <= 1) return;
     const itemWidth = zipContent.clientWidth || window.innerWidth;

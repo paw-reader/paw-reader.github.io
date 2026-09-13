@@ -18,6 +18,7 @@ import {
 } from "./mega.js";
 import {
   isDropboxUrl,
+  isDropboxFolderUrl,
   openDropboxGallery,
   handleDropboxFileCard
 } from "./dropbox.js";
@@ -43,6 +44,7 @@ export {
   fetchMegaStorageStream,
   downloadAndDecryptMegaPayload,
   isDropboxUrl,
+  isDropboxFolderUrl,
   openDropboxGallery,
   handleDropboxFileCard
 };
@@ -108,7 +110,18 @@ export function isImageOrVideo(filename) {
 }
 
 function cleanUrl(url) {
-  return url.replace(/[\.,\);>]+$/, "").trim();
+  let cleaned = url.replace(/&amp;/g, "&").replace(/[\.,;>]+$/, "").trim();
+  while (cleaned.endsWith(")")) {
+    const openCount = (cleaned.match(/\(/g) || []).length;
+    const closeCount = (cleaned.match(/\)/g) || []).length;
+    if (closeCount > openCount) {
+      cleaned = cleaned.slice(0, -1);
+      cleaned = cleaned.replace(/[\.,;>]+$/, "").trim();
+    } else {
+      break;
+    }
+  }
+  return cleaned;
 }
 
 /**
@@ -130,7 +143,7 @@ export function detectExternalGalleries(contentHtml) {
   }
 
   const text = contentHtml.replace(/<[^>]+>/g, " ");
-  const urlRegex = /(https?:\/\/[^\s<>"'\)]+)/gi;
+  const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
   while ((match = urlRegex.exec(text)) !== null) {
     const raw = cleanUrl(match[1]);
     if (isMegaUrl(raw)) megaUrls.add(raw);
@@ -213,7 +226,8 @@ export function renderArchiveCardUI(item, url, type, postTitle, archiveName, sig
 
   if (details) {
     const sizeStr = details.totalSize > 0 ? `${formatBytes(details.totalSize)}, ` : "";
-    const headerInfo = `${sizeStr}${details.fileCount} files`;
+    const countText = details.countLabel || `${details.fileCount} files`;
+    const headerInfo = `${sizeStr}${countText}`;
     let rawTree = (details.tree || details.treeHtml || "").trim();
     rawTree = rawTree.replace(/\n?\s*\.\.\.\s*and\s+\d+\s+more\s+files/gi, "");
     rawTree = rawTree.replace(/\n?\s*\.\.\.\s*and\s+more\s+files/gi, "");

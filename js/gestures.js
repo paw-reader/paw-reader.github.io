@@ -1,7 +1,7 @@
 import { state } from "./state.js";
 import { closeAllPostInfo, feedView, creatorsView, welcomeScreen, showView, updateNavTabs } from "./nav.js";
 import { feed, navigateCarousel, recycleOffscreenCards, resetFeed } from "./feed.js";
-import { zipViewer, zipContent, setZipNavVisible, closeZipGallery } from "./zip.js";
+import { zipViewer, zipContent, setZipNavVisible, closeZipGallery, getActiveMediaItem, toggleZipFileInfoModal, navigateFolder } from "./zip.js";
 
 export function initGestures() {
   let feedScrollTimeout;
@@ -94,6 +94,11 @@ export function initGestures() {
       e.preventDefault();
 
       if (zipViewer && !zipViewer.classList.contains("hidden")) {
+        const modal = document.getElementById("zip-file-info-modal");
+        if (modal && modal.classList.contains("expanded")) {
+          modal.classList.remove("expanded");
+          return;
+        }
         closeZipGallery();
         return;
       }
@@ -129,6 +134,46 @@ export function initGestures() {
     const h = window.innerHeight;
 
     if (zipViewer && !zipViewer.classList.contains("hidden")) {
+      if (e.key.toLowerCase() === "i") {
+        e.preventDefault();
+        toggleZipFileInfoModal();
+        return;
+      }
+
+      if (zipContent && zipContent.classList.contains("gallery-2d-mode")) {
+        if (e.key === "ArrowUp" || e.key.toLowerCase() === "w") {
+          e.preventDefault();
+          navigateFolder("up");
+          return;
+        }
+        if (e.key === "ArrowDown" || e.key.toLowerCase() === "s") {
+          e.preventDefault();
+          navigateFolder("down");
+          return;
+        }
+        if (
+          e.key === "ArrowLeft" ||
+          e.key.toLowerCase() === "a" ||
+          e.key === "ArrowRight" ||
+          e.key.toLowerCase() === "d"
+        ) {
+          e.preventDefault();
+          const active = getActiveMediaItem();
+          if (active && active.folderRow) {
+            const w = active.folderRow.clientWidth || window.innerWidth;
+            const target = (e.key === "ArrowLeft" || e.key.toLowerCase() === "a")
+              ? Math.max(0, active.folderRow.scrollLeft - w)
+              : Math.min(active.folderRow.scrollWidth - w, active.folderRow.scrollLeft + w);
+            active.folderRow.scrollTo({
+              left: target,
+              behavior: window.pawAnimationsDisabled ? "auto" : "smooth"
+            });
+          }
+          return;
+        }
+        return;
+      }
+
       const count = parseInt(zipContent?.dataset?.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
       if (!zipContent || count <= 1) return;
 
@@ -240,6 +285,24 @@ export function initGestures() {
       const feedEl = e.target.closest("#feed");
 
       if (zipC && zipViewer && !zipViewer.classList.contains("hidden")) {
+        if (zipC.classList.contains("gallery-2d-mode")) {
+          const active = getActiveMediaItem();
+          if (Math.abs(stepsY) >= Math.abs(stepsX)) {
+            wheelAccumY = 0;
+            if (stepsY > 0) navigateFolder("down");
+            else if (stepsY < 0) navigateFolder("up");
+          } else if (active && active.folderRow) {
+            wheelAccumX = 0;
+            const w = active.folderRow.clientWidth || window.innerWidth;
+            const target = stepsX > 0 ? active.folderRow.scrollLeft + w : active.folderRow.scrollLeft - w;
+            active.folderRow.scrollTo({
+              left: Math.max(0, Math.min(target, active.folderRow.scrollWidth - w)),
+              behavior: "auto"
+            });
+          }
+          return;
+        }
+
         wheelAccumX -= stepsX * SCROLL_THRESHOLD;
         wheelAccumY -= stepsY * SCROLL_THRESHOLD;
         
@@ -365,6 +428,24 @@ export function initGestures() {
     const feedEl = e.target.closest("#feed");
 
     if (zipC && zipViewer && !zipViewer.classList.contains("hidden")) {
+      if (zipC.classList.contains("gallery-2d-mode")) {
+        const active = getActiveMediaItem();
+        if (Math.abs(dy) > Math.abs(dx)) {
+          if (dy > 30) navigateFolder("down");
+          else if (dy < -30) navigateFolder("up");
+        } else if (active && active.folderRow) {
+          const w = window.innerWidth;
+          let target = Math.round(active.folderRow.scrollLeft / w) * w;
+          if (dx > 30) target += w;
+          else if (dx < -30) target -= w;
+          active.folderRow.scrollTo({
+            left: Math.max(0, Math.min(target, active.folderRow.scrollWidth - w)),
+            behavior: "auto"
+          });
+        }
+        return;
+      }
+
       if (Math.abs(dx) > Math.abs(dy)) {
         const w = window.innerWidth;
         let target = Math.round(zipC.scrollLeft / w) * w;
