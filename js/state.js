@@ -18,4 +18,5 @@ export const state = {
   currentZipObjectUrls: [],
   cumSelectedTypes: ["photos", "videos", "audio", "text"],
   creatorSortDir: "desc",
+  currentGalleryPost: null,
 };

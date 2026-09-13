@@ -26,7 +26,7 @@ import {
   loadCreators,
   filterAndSortCreators
 } from './js/creators.js';
-import { resetFeed, fetchPosts, navigateCarousel, handleCarouselScrollSettled } from './js/feed.js';
+import { resetFeed, fetchPosts, navigateCarousel, handleCarouselScrollSettled, smoothScroll } from './js/feed.js';
 import {
   zipViewer,
   zipContent,
@@ -43,6 +43,8 @@ import {
   closeZipGallery,
   toggleZipFileInfoModal,
   navigateFolder,
+  jumpToFolder,
+  updateZipIndicatorsAndHUD,
   getActiveMediaItem
 } from './js/zip.js';
 import { initGestures } from './js/gestures.js';
@@ -378,7 +380,36 @@ if (closeZipFileInfo) {
 if (zipIndicator && zipContent) {
   zipIndicator.addEventListener('click', (e) => {
     e.stopPropagation();
-    setZipNavVisible(!state.zipNavManualVisible, true);
+    if (zipContent.classList.contains('gallery-2d-mode')) {
+      const active = getActiveMediaItem();
+      if (active && active.folderRow) {
+        if (active.fileIdx > 0) {
+          const count = active.totalFiles;
+          const itemWidth = active.folderRow.clientWidth || window.innerWidth;
+          const targetX = count > 1 ? 1 * itemWidth : 0;
+          active.folderRow._targetIndex = 1;
+          smoothScroll(active.folderRow, targetX, window.pawAnimationsDisabled ? 0 : 140, () => {
+            active.folderRow._targetIndex = undefined;
+            active.folderRow.scrollLeft = targetX;
+            updateZipIndicatorsAndHUD();
+          });
+          return;
+        } else if (active.folderIdx > 0) {
+          jumpToFolder(0);
+          return;
+        }
+      }
+    } else {
+      const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
+      const itemWidth = zipContent.clientWidth || window.innerWidth;
+      const targetX = count > 1 ? 1 * itemWidth : 0;
+      smoothScroll(zipContent, targetX, window.pawAnimationsDisabled ? 0 : 140, () => {
+        zipContent._targetIndex = undefined;
+        zipContent.scrollLeft = targetX;
+        updateZipIndicatorsAndHUD();
+      });
+      return;
+    }
   });
 }
 
@@ -389,10 +420,24 @@ if (zipViewer) {
     if (
       e.target.tagName.toLowerCase() === 'button' ||
       e.target.closest('#zip-nav') ||
+      e.target.closest('#zip-indicator') ||
       e.target.closest('#settings-menu') ||
       e.target.closest('.dropbox-browser-root') ||
-      e.target.closest('#zip-file-info-modal')
+      e.target.closest('#zip-file-info-modal') ||
+      e.target.closest('#zip-nav-dropdown')
     ) {
+      return;
+    }
+
+    const dropdown = document.getElementById("zip-nav-dropdown");
+    if (dropdown) {
+      if (typeof dropdown._cleanup === 'function') dropdown._cleanup();
+      dropdown.remove();
+      const openBtns = document.querySelectorAll(".zip-nav-tab-btn.open");
+      openBtns.forEach((b) => {
+        b.classList.remove("open");
+        b.classList.remove("active");
+      });
       return;
     }
 
@@ -402,28 +447,17 @@ if (zipViewer) {
       return;
     }
 
-    if (e.target.id === 'zip-indicator' || e.target.closest('#zip-indicator')) {
-      setZipNavVisible(!state.zipNavManualVisible, true);
-      return;
-    }
-
-    // In 2D Matrix mode: tap left/right side of screen scrolls active folder row left/right
+    // In 2D Matrix mode: tap left/right side of screen scrolls active folder row left/right with wrap-around
     if (zipContent && zipContent.classList.contains('gallery-2d-mode')) {
       const active = getActiveMediaItem();
       if (active && active.folderRow) {
         const x = e.clientX;
         const w = window.innerWidth;
         if (x < w * 0.2) {
-          active.folderRow.scrollTo({
-            left: Math.max(0, active.folderRow.scrollLeft - w),
-            behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth'
-          });
+          navigateCarousel(active.folderRow, 'left', active.totalFiles);
           return;
         } else if (x > w * 0.8) {
-          active.folderRow.scrollTo({
-            left: Math.min(active.folderRow.scrollWidth - w, active.folderRow.scrollLeft + w),
-            behavior: window.pawAnimationsDisabled ? 'auto' : 'smooth'
-          });
+          navigateCarousel(active.folderRow, 'right', active.totalFiles);
           return;
         }
       }

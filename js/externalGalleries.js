@@ -256,10 +256,11 @@ export function renderArchiveCardUI(item, url, type, postTitle, archiveName, sig
   btnView.className = "zip-action-btn";
   const onGalleryClick = (e) => {
     e.stopPropagation();
+    const post = item._post || (item.closest('.post-card') && item.closest('.post-card')._post) || null;
     if (isMega) {
-      openMegaGallery(url, archiveName || postTitle);
+      openMegaGallery(url, archiveName || postTitle, post);
     } else {
-      openDropboxGallery(url, archiveName || postTitle);
+      openDropboxGallery(url, archiveName || postTitle, [], post);
     }
   };
   btnView.addEventListener("click", onGalleryClick);

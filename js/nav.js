@@ -431,12 +431,18 @@ export function updateNavTabs(creator) {
 
       resetFeed();
       if (tab === "Fancards" && state.currentSite === "cum") {
+        feed.style.scrollSnapType = "";
+        feed.classList.remove("continuous-scroll");
         state.currentFeedEndpoint = `${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/posts?type=fancards`;
         fetchPosts();
       } else if (tab === "Posts" || tab === "DMs" || tab === "Announcements" || tab === "Fancards") {
+        feed.style.scrollSnapType = "";
+        feed.classList.remove("continuous-scroll");
         state.currentFeedEndpoint = `${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}`;
         fetchPosts();
       } else if (tab === "Similar Creators" || tab === "Similar Artists") {
+        feed.style.scrollSnapType = "none";
+        feed.classList.add("continuous-scroll");
         const isMobile = window.innerWidth <= 600 || window.innerHeight <= 500;
         const placeholderPadding = isMobile ? "120px 20px 40px 20px" : "80px 20px 40px 20px";
 
@@ -554,6 +560,8 @@ export function updateNavTabs(creator) {
             feed.appendChild(placeholder);
           });
       } else if (tab === "Tags") {
+        feed.style.scrollSnapType = "none";
+        feed.classList.add("continuous-scroll");
         const isMobile = window.innerWidth <= 600 || window.innerHeight <= 500;
         const placeholderPadding = isMobile ? "120px 20px 40px 20px" : "80px 20px 40px 20px";
 
@@ -577,6 +585,7 @@ export function updateNavTabs(creator) {
             }
 
             const container = document.createElement("div");
+            container.className = "tags-container";
             const pad = isMobile ? "120px 20px 60px 20px" : "80px 20px 60px 20px";
             container.style.cssText = `padding: ${pad}; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 900px; margin: 0 auto; box-sizing: border-box;`;
 
@@ -605,6 +614,8 @@ export function updateNavTabs(creator) {
 
               tagBtn.addEventListener("click", () => {
                 resetFeed();
+                feed.style.scrollSnapType = "";
+                feed.classList.remove("continuous-scroll");
                 state.currentFeedEndpoint = `${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/posts?tag=${encodeURIComponent(tagText)}`;
                 Array.from(navTabs.children).forEach((c) => (c.style.background = ""));
                 fetchPosts();
@@ -623,6 +634,8 @@ export function updateNavTabs(creator) {
             feed.appendChild(placeholder);
           });
       } else {
+        feed.style.scrollSnapType = "none";
+        feed.classList.add("continuous-scroll");
         const isMobile = window.innerWidth <= 600 || window.innerHeight <= 500;
         const placeholderPadding = isMobile ? "120px 20px 40px 20px" : "80px 20px 40px 20px";
         const placeholder = document.createElement("div");

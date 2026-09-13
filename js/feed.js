@@ -717,7 +717,7 @@ export async function loadMediaWithProgress(item) {
     btnView.addEventListener("click", (e) => {
       e.stopPropagation();
       if (!zipBlob) return;
-      openZipGallery(url, zipFilename, zipBlob);
+      openZipGallery(url, zipFilename, zipBlob, item._post || (item.closest('.post-card') && item.closest('.post-card')._post) || null);
     });
 
     scanZip();
@@ -1132,9 +1132,145 @@ export function navigateCarousel(carousel, direction, totalCount, isKey = false)
   });
 }
 
+export function renderPostInfoSection(post, authorEl, titleEl, contentEl) {
+  if (!post) {
+    if (authorEl) {
+      authorEl.innerHTML = "";
+      authorEl.style.display = "none";
+    }
+    if (titleEl) {
+      titleEl.innerHTML = "";
+      titleEl.style.display = "none";
+    }
+    if (contentEl) {
+      contentEl.innerHTML = "";
+      contentEl.style.display = "none";
+    }
+    return;
+  }
+
+  if (!post.service) {
+    const match = state.currentFeedEndpoint && state.currentFeedEndpoint.match(/\/api\/v1\/([^\/]+)\/user\/([^\/]+)/);
+    if (match) {
+      post.service = match[1];
+      if (!post.user) post.user = match[2];
+    }
+  }
+
+  if (authorEl) {
+    authorEl.innerHTML = "";
+    authorEl.style.display = "flex";
+    authorEl.style.alignItems = "center";
+    authorEl.style.gap = "8px";
+
+    const creator = state.allCreators.find((c) => c.id === post.user && c.service === post.service);
+    const displayName = post.authorName || (creator ? creator.name : state.currentFeedCreatorName) || post.user || "Unknown";
+    const creatorUrl = getServiceCreatorUrl(post.service, post.user, displayName);
+
+    const authorLink = document.createElement("a");
+    authorLink.className = "post-author-link";
+    authorLink.href = creatorUrl;
+    authorLink.target = "_blank";
+    authorLink.rel = "noopener noreferrer";
+    authorLink.textContent = `Creator: ${displayName}`;
+    authorEl.appendChild(authorLink);
+
+    if (post.service) {
+      const serviceIcon = document.createElement("img");
+      serviceIcon.src = `icons/${post.service}.svg`;
+      serviceIcon.style.objectFit = "contain";
+      serviceIcon.style.flexShrink = "0";
+
+      const hasCJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\uac00-\ud7af]/.test(
+        displayName || ""
+      );
+      let iconMarginBottom = "4px";
+      if (post.service === "fantia" || hasCJK) {
+        iconMarginBottom = "0px";
+      }
+
+      if (post.service === "fantia" || post.service === "dlsite") {
+        serviceIcon.style.width = "50px";
+        serviceIcon.style.height = "24px";
+        serviceIcon.style.marginBottom = iconMarginBottom;
+      } else if (post.service === "onlyfans") {
+        serviceIcon.style.width = "24px";
+        serviceIcon.style.height = "24px";
+        serviceIcon.style.marginBottom = iconMarginBottom;
+      } else {
+        serviceIcon.style.width = "18px";
+        serviceIcon.style.height = "18px";
+        serviceIcon.style.marginBottom = iconMarginBottom;
+      }
+      serviceIcon.title = post.service;
+      serviceIcon.onerror = () => {
+        serviceIcon.style.display = "none";
+        const fallbackText = document.createElement("span");
+        fallbackText.textContent = `(${post.service})`;
+        fallbackText.style.opacity = "0.7";
+        fallbackText.style.fontSize = "0.9em";
+        authorEl.appendChild(fallbackText);
+      };
+
+      const serviceLink = document.createElement("a");
+      serviceLink.href = creatorUrl;
+      serviceLink.target = "_blank";
+      serviceLink.rel = "noopener noreferrer";
+      serviceLink.style.display = "flex";
+      serviceLink.style.alignItems = "center";
+      serviceLink.appendChild(serviceIcon);
+      authorEl.appendChild(serviceLink);
+    }
+  }
+
+  if (titleEl) {
+    titleEl.innerHTML = "";
+    titleEl.style.display = "flex";
+
+    const postUrl = getServicePostUrl(post.service, post.user, post.id);
+    const titleLink = document.createElement("a");
+    titleLink.className = "post-title-link";
+    titleLink.href = postUrl;
+    titleLink.target = "_blank";
+    titleLink.rel = "noopener noreferrer";
+    titleLink.textContent = post.title || "Untitled";
+    titleEl.appendChild(titleLink);
+  }
+
+  if (contentEl) {
+    contentEl.innerHTML = "";
+    if (window.matchMedia("(max-width: 768px)").matches) {
+      contentEl.style.paddingBottom = "120px";
+    }
+
+    let cleanContent = post._cleanContent || post.content || post.substring || "";
+    if (cleanContent) {
+      cleanContent = cleanContent.replace(/(href|src)=["']file:[^"']*["']/gi, '$1="#"');
+      cleanContent = cleanContent.replace(/<a /gi, '<a target="_blank" rel="noopener noreferrer" ');
+      contentEl.innerHTML = cleanContent;
+      contentEl.style.display = "block";
+    } else {
+      contentEl.style.display = "none";
+    }
+  }
+}
+
+export function getCurrentGalleryPost() {
+  if (state.currentGalleryPost) return state.currentGalleryPost;
+  const feedEl = document.getElementById("feed");
+  if (feedEl) {
+    const h = window.innerHeight || 1;
+    const currentIndex = Math.round(feedEl.scrollTop / h);
+    const card = feedEl.children[currentIndex];
+    if (card && card._post) return card._post;
+  }
+  return null;
+}
+
 export function createPostCard(post) {
   const card = document.createElement("div");
   card.className = "post-card";
+  card._post = post;
 
   let allMedia = [];
   const supportedExts = [
@@ -1180,6 +1316,9 @@ export function createPostCard(post) {
   let cleanContent = post.content || post.substring || "";
   if (cleanContent) {
     cleanContent = cleanContent.replace(/(href|src)=["']file:[^"']*["']/gi, '$1="#"');
+  }
+  post._cleanContent = cleanContent;
+  if (cleanContent) {
 
     const tmp = document.createElement("div");
     tmp.innerHTML = cleanContent;
@@ -1284,99 +1423,14 @@ export function createPostCard(post) {
     }
   }
 
-  if (!post.service) {
-    const match = state.currentFeedEndpoint.match(/\/api\/v1\/([^\/]+)\/user\/([^\/]+)/);
-    if (match) {
-      post.service = match[1];
-      if (!post.user) post.user = match[2];
-    }
-  }
-
   const author = document.createElement("div");
   author.className = "post-author";
-  author.style.display = "flex";
-  author.style.alignItems = "center";
-  author.style.gap = "8px";
-
-  const creator = state.allCreators.find((c) => c.id === post.user && c.service === post.service);
-  const displayName = post.authorName || (creator ? creator.name : state.currentFeedCreatorName) || post.user;
-  const creatorUrl = getServiceCreatorUrl(post.service, post.user, displayName);
-
-  const authorLink = document.createElement("a");
-  authorLink.className = "post-author-link";
-  authorLink.href = creatorUrl;
-  authorLink.target = "_blank";
-  authorLink.rel = "noopener noreferrer";
-  authorLink.textContent = `Creator: ${displayName}`;
-  author.appendChild(authorLink);
-
-  const serviceIcon = document.createElement("img");
-  serviceIcon.src = `icons/${post.service}.svg`;
-  serviceIcon.style.objectFit = "contain";
-  serviceIcon.style.flexShrink = "0";
-
-  const hasCJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\uac00-\ud7af]/.test(
-    displayName || ""
-  );
-  let iconMarginBottom = "4px";
-  if (post.service === "fantia" || hasCJK) {
-    iconMarginBottom = "0px";
-  }
-
-  if (post.service === "fantia" || post.service === "dlsite") {
-    serviceIcon.style.width = "50px";
-    serviceIcon.style.height = "24px";
-    serviceIcon.style.marginBottom = iconMarginBottom;
-  } else if (post.service === "onlyfans") {
-    serviceIcon.style.width = "24px";
-    serviceIcon.style.height = "24px";
-    serviceIcon.style.marginBottom = iconMarginBottom;
-  } else {
-    serviceIcon.style.width = "18px";
-    serviceIcon.style.height = "18px";
-    serviceIcon.style.marginBottom = iconMarginBottom;
-  }
-  serviceIcon.title = post.service;
-  serviceIcon.onerror = () => {
-    serviceIcon.style.display = "none";
-    const fallbackText = document.createElement("span");
-    fallbackText.textContent = `(${post.service})`;
-    fallbackText.style.opacity = "0.7";
-    fallbackText.style.fontSize = "0.9em";
-    author.appendChild(fallbackText);
-  };
-
-  const serviceLink = document.createElement("a");
-  serviceLink.href = creatorUrl;
-  serviceLink.target = "_blank";
-  serviceLink.rel = "noopener noreferrer";
-  serviceLink.style.display = "flex";
-  serviceLink.style.alignItems = "center";
-  serviceLink.appendChild(serviceIcon);
-  author.appendChild(serviceLink);
-
   const title = document.createElement("div");
   title.className = "post-title";
-
-  const postUrl = getServicePostUrl(post.service, post.user, post.id);
-  const titleLink = document.createElement("a");
-  titleLink.className = "post-title-link";
-  titleLink.href = postUrl;
-  titleLink.target = "_blank";
-  titleLink.rel = "noopener noreferrer";
-  titleLink.textContent = post.title || "Untitled";
-  title.appendChild(titleLink);
-
   const content = document.createElement("div");
   content.className = "post-content";
-  if (window.matchMedia("(max-width: 768px)").matches) {
-    content.style.paddingBottom = "120px";
-  }
 
-  if (cleanContent) {
-    cleanContent = cleanContent.replace(/<a /gi, '<a target="_blank" rel="noopener noreferrer" ');
-    content.innerHTML = cleanContent;
-  }
+  renderPostInfoSection(post, author, title, content);
 
   if (allMedia.length === 0) {
     const textCard = document.createElement("div");
@@ -1412,6 +1466,7 @@ export function createPostCard(post) {
       const item = document.createElement("div");
       item.className = "media-item";
       item.dataset.originalName = mediaObj.name;
+      item._post = post;
 
       if (mediaObj.isExternal) {
         item.dataset.url = mediaObj.url;

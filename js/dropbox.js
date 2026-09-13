@@ -1,7 +1,7 @@
 import { PROXY_URL, state } from "./state.js";
 import { zipViewer, zipTitle, zipContent, zipIndicator, setZipNavVisible, closeZipGallery, render2DMatrixGallery, updateZipIndicatorsAndHUD } from "./zip.js";
 import { formatBytes, showMediaUnavailableWarning, renderMediaProgress, renderArchiveProgress } from "./utils.js";
-import { syncCarouselClones, playbackObserver } from "./feed.js";
+import { syncCarouselClones, playbackObserver, getCurrentGalleryPost } from "./feed.js";
 import { createExternalAbortSignal, renderArchiveCardUI, escapeHtml, isImageOrVideo } from "./externalGalleries.js";
 
 export const dropboxFolderCache = new Map();
@@ -100,11 +100,19 @@ export function formatDropboxFileTree(entries, folderName) {
  * Fetches Dropbox folder entries via the worker proxy endpoint with caching and in-flight deduplication.
  */
 export async function fetchDropboxFolderEntries(url, signal) {
-  if (dropboxFolderCache.has(url)) {
-    return dropboxFolderCache.get(url);
+  let cleanUrl = url;
+  try {
+    const u = new URL(url);
+    u.searchParams.delete("raw");
+    u.searchParams.set("dl", "0");
+    cleanUrl = u.toString();
+  } catch (_) {}
+
+  if (dropboxFolderCache.has(cleanUrl)) {
+    return dropboxFolderCache.get(cleanUrl);
   }
-  if (dropboxInFlight.has(url)) {
-    return dropboxInFlight.get(url);
+  if (dropboxInFlight.has(cleanUrl)) {
+    return dropboxInFlight.get(cleanUrl);
   }
 
   const timeoutController = new AbortController();
@@ -122,7 +130,7 @@ export async function fetchDropboxFolderEntries(url, signal) {
 
   const fetchPromise = (async () => {
     try {
-      const listEndpoint = `${PROXY_URL}/dropbox/list?url=${encodeURIComponent(url)}`;
+      const listEndpoint = `${PROXY_URL}/dropbox/list?url=${encodeURIComponent(cleanUrl)}`;
       const res = await fetch(listEndpoint, { signal: combinedSignal });
 
       const contentType = res.headers.get("content-type") || "";
@@ -145,7 +153,7 @@ export async function fetchDropboxFolderEntries(url, signal) {
       }
 
       const data = await res.json();
-      dropboxFolderCache.set(url, data);
+      dropboxFolderCache.set(cleanUrl, data);
       return data;
     } catch (fetchErr) {
       if (signal && signal.aborted) throw fetchErr;
@@ -155,11 +163,11 @@ export async function fetchDropboxFolderEntries(url, signal) {
       throw fetchErr;
     } finally {
       clearTimeout(timeoutId);
-      dropboxInFlight.delete(url);
+      dropboxInFlight.delete(cleanUrl);
     }
   })();
 
-  dropboxInFlight.set(url, fetchPromise);
+  dropboxInFlight.set(cleanUrl, fetchPromise);
   return fetchPromise;
 }
 
@@ -181,7 +189,14 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
   const isVideo = ["mp4", "webm", "mov"].includes(ext);
 
   if (isImage || isVideo) {
-    const directUrl = `${PROXY_URL}/dropbox?url=${encodeURIComponent(url)}`;
+    let targetUrl = url;
+    try {
+      const u = new URL(url);
+      u.searchParams.set("raw", "1");
+      u.searchParams.delete("dl");
+      targetUrl = u.toString();
+    } catch (_) {}
+    const directUrl = `${PROXY_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
     if (progressOverlay) {
       progressOverlay.style.display = "flex";
       renderMediaProgress(progressOverlay, "Loading...", null, filename, "", "");
@@ -207,17 +222,24 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
         delete item.dataset.loaded;
         handleDropboxFileCard(item, url, postTitle, filename, progressOverlay, signal);
       };
-      video.onerror = () => {
-        if (progressOverlay) showMediaUnavailableWarning(progressOverlay, { type: "video", filename, errorStatus: "404", externalUrl: url, onRetry: triggerRetry });
+      video.onerror = async () => {
+        item.querySelectorAll("video.post-media").forEach((el) => el.remove());
+        let errorStatus = "500";
+        try {
+          const probeRes = await fetch(directUrl, { method: "HEAD", signal });
+          if (!probeRes.ok) errorStatus = String(probeRes.status);
+        } catch (_) {}
+        if (progressOverlay) showMediaUnavailableWarning(progressOverlay, { type: "video", filename, errorStatus, externalUrl: url, onRetry: triggerRetry });
       };
       item.appendChild(video);
       playbackObserver.observe(video);
     } else {
-      const img = document.createElement("img");
+      const img = new Image();
       img.className = "post-media";
-      img.src = directUrl;
       img.onload = () => {
         if (progressOverlay) progressOverlay.style.display = "none";
+        item.querySelectorAll("img.post-media").forEach((el) => el.remove());
+        item.appendChild(img);
         syncCarouselClones(item);
       };
       const triggerRetry = () => {
@@ -225,10 +247,16 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
         delete item.dataset.loaded;
         handleDropboxFileCard(item, url, postTitle, filename, progressOverlay, signal);
       };
-      img.onerror = () => {
-        if (progressOverlay) showMediaUnavailableWarning(progressOverlay, { type: "image", filename, errorStatus: "404", externalUrl: url, onRetry: triggerRetry });
+      img.onerror = async () => {
+        item.querySelectorAll("img.post-media").forEach((el) => el.remove());
+        let errorStatus = "500";
+        try {
+          const probeRes = await fetch(directUrl, { method: "HEAD", signal });
+          if (!probeRes.ok) errorStatus = String(probeRes.status);
+        } catch (_) {}
+        if (progressOverlay) showMediaUnavailableWarning(progressOverlay, { type: "image", filename, errorStatus, externalUrl: url, onRetry: triggerRetry });
       };
-      item.appendChild(img);
+      img.src = directUrl;
     }
     return;
   }
@@ -280,7 +308,16 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
     if (mediaFiles.length === 1 && subfolders.length === 0) {
       const single = mediaFiles[0];
       const isVideo = ["mp4", "webm", "mov"].includes(single.filename.split(".").pop().toLowerCase());
-      const streamUrl = `${PROXY_URL}/proxy?url=${encodeURIComponent(single.rawUrl || single.href)}`;
+      let targetUrl = single.rawUrl || single.href || "";
+      if (targetUrl) {
+        try {
+          const u = new URL(targetUrl);
+          u.searchParams.set("raw", "1");
+          u.searchParams.delete("dl");
+          targetUrl = u.toString();
+        } catch (_) {}
+      }
+      const streamUrl = `${PROXY_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
 
       if (progressOverlay) progressOverlay.style.display = "none";
 
@@ -304,12 +341,18 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
           delete item.dataset.loaded;
           handleDropboxFolderEmbed(item, url, progressOverlay, postTitle, fallbackName, signal);
         };
-        video.onerror = () => {
+        video.onerror = async () => {
+          item.querySelectorAll("video.post-media").forEach((el) => el.remove());
+          let errorStatus = "500";
+          try {
+            const probeRes = await fetch(streamUrl, { method: "HEAD", signal });
+            if (!probeRes.ok) errorStatus = String(probeRes.status);
+          } catch (_) {}
           if (progressOverlay) {
             showMediaUnavailableWarning(progressOverlay, {
               type: "video",
               filename: single.filename,
-              errorStatus: "404",
+              errorStatus,
               externalUrl: url,
               onRetry: triggerRetry
             });
@@ -318,10 +361,12 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
         item.appendChild(video);
         playbackObserver.observe(video);
       } else {
-        const img = document.createElement("img");
+        const img = new Image();
         img.className = "post-media";
-        img.src = streamUrl;
         img.onload = () => {
+          if (progressOverlay) progressOverlay.style.display = "none";
+          item.querySelectorAll("img.post-media").forEach((el) => el.remove());
+          item.appendChild(img);
           syncCarouselClones(item);
         };
         const triggerRetry = () => {
@@ -329,18 +374,24 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
           delete item.dataset.loaded;
           handleDropboxFolderEmbed(item, url, progressOverlay, postTitle, fallbackName, signal);
         };
-        img.onerror = () => {
+        img.onerror = async () => {
+          item.querySelectorAll("img.post-media").forEach((el) => el.remove());
+          let errorStatus = "500";
+          try {
+            const probeRes = await fetch(streamUrl, { method: "HEAD", signal });
+            if (!probeRes.ok) errorStatus = String(probeRes.status);
+          } catch (_) {}
           if (progressOverlay) {
             showMediaUnavailableWarning(progressOverlay, {
               type: "image",
               filename: single.filename,
-              errorStatus: "404",
+              errorStatus,
               externalUrl: url,
               onRetry: triggerRetry
             });
           }
         };
-        item.appendChild(img);
+        img.src = streamUrl;
       }
       syncCarouselClones(item);
       return;
@@ -632,7 +683,13 @@ export async function crawlAllDropboxFolders(rootUrl, rootName, initialEntries, 
  * Opens a Dropbox share link in the fullscreen gallery viewer.
  * Folders stream media files individually on-demand without downloading the entire folder.
  */
-export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack = []) {
+export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack = [], post = null) {
+  if (post) {
+    state.currentGalleryPost = post;
+  } else if (!state.currentGalleryPost) {
+    state.currentGalleryPost = getCurrentGalleryPost();
+  }
+
   const signal = createExternalAbortSignal();
 
   const existingBackBtn = document.getElementById("dropbox-carousel-back-btn");
@@ -1221,62 +1278,76 @@ function createDropboxItemContainer(file, idx, folderName = "") {
 function loadAndDisplayDropboxItem(container, file, signal) {
   if (!file) return;
 
-  // If already loaded or has media element, prevent duplicate processing
-  if (container.dataset.loaded === "true" || container.querySelector("video, img")) {
-    container.dataset.loaded = "true";
-    container.dataset.loading = "false";
-    const o = container.querySelector(".media-progress");
-    if (o) o.style.display = "none";
-    return;
-  }
+  // If already loaded, do nothing
+  if (container.dataset.loaded === "true") return;
 
+  // If actively loading, do not initiate a redundant load
   if (container.dataset.loading === "true") return;
 
   const fileIdxStr = container.dataset.fileIdx;
   const parentRow = container.closest(".zip-folder-row");
   const allMatchingContainers = parentRow
-    ? [container]
+    ? Array.from(parentRow.querySelectorAll(`[data-file-idx="${fileIdxStr}"]`))
     : (zipContent ? Array.from(zipContent.querySelectorAll(`[data-file-idx="${fileIdxStr}"]`)) : [container]);
 
-  // If any matching container already has media loaded, sync them and return
-  const alreadyHasMedia = allMatchingContainers.some((c) => c.dataset.loaded === "true" || c.querySelector("video, img"));
-  if (alreadyHasMedia) {
-    allMatchingContainers.forEach((c) => {
-      c.dataset.loaded = "true";
-      c.dataset.loading = "false";
-      const o = c.querySelector(".media-progress");
-      if (o) o.style.display = "none";
-    });
+  // If another clone already has this media successfully loaded, clone it directly and return
+  const alreadyLoadedContainer = allMatchingContainers.find((c) => c.dataset.loaded === "true");
+  if (alreadyLoadedContainer) {
+    container.dataset.loaded = "true";
+    delete container.dataset.loading;
+    const existingMedia = alreadyLoadedContainer.querySelector("img, video");
+    if (existingMedia) {
+      container.querySelectorAll("img, video").forEach((el) => el.remove());
+      container.appendChild(existingMedia.cloneNode(true));
+    }
+    const o = container.querySelector(".media-progress");
+    if (o) o.style.display = "none";
     return;
   }
 
-  // Mark all matching containers as loading simultaneously
+  // Mark all matching containers as loading
   allMatchingContainers.forEach((c) => {
     c.dataset.loading = "true";
+    delete c.dataset.loaded;
+    const overlay = c.querySelector(".media-progress");
+    if (overlay) {
+      overlay.style.display = "flex";
+      const displayName = file.path || file.filename;
+      renderMediaProgress(overlay, "Loading...", null, displayName, file.bytes ? formatBytes(file.bytes) : "", "");
+    }
   });
 
   const ext = file.filename.split(".").pop().toLowerCase();
   const isVideo = ["mp4", "webm", "mov"].includes(ext);
-  const streamUrl = `${PROXY_URL}/proxy?url=${encodeURIComponent(file.rawUrl || file.href)}`;
+
+  let targetUrl = file.rawUrl || file.href || "";
+  if (targetUrl) {
+    try {
+      const u = new URL(targetUrl);
+      u.searchParams.set("raw", "1");
+      u.searchParams.delete("dl");
+      targetUrl = u.toString();
+    } catch (_) {}
+  }
+  const streamUrl = `${PROXY_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
 
   if (isVideo) {
     allMatchingContainers.forEach((c) => {
-      let video = c.querySelector("video");
-      if (!video) {
-        video = document.createElement("video");
-        video.controls = true;
-        video.playsInline = true;
-        video.style.maxWidth = "100%";
-        video.style.maxHeight = "100%";
-        video.style.objectFit = "contain";
-        video.preload = "metadata";
-        c.appendChild(video);
-      }
+      c.querySelectorAll("img, video").forEach((el) => el.remove());
+
+      const video = document.createElement("video");
+      video.controls = true;
+      video.playsInline = true;
+      video.style.maxWidth = "100%";
+      video.style.maxHeight = "100%";
+      video.style.objectFit = "contain";
+      video.preload = "metadata";
+      c.appendChild(video);
 
       const onReady = () => {
         allMatchingContainers.forEach((target) => {
           target.dataset.loaded = "true";
-          target.dataset.loading = "false";
+          delete target.dataset.loading;
           const o = target.querySelector(".media-progress");
           if (o) o.style.display = "none";
         });
@@ -1285,75 +1356,116 @@ function loadAndDisplayDropboxItem(container, file, signal) {
       video.addEventListener("canplay", onReady, { once: true });
       video.addEventListener("loadedmetadata", onReady, { once: true });
 
-      video.onerror = () => {
+      video.onerror = async () => {
         if (signal && signal.aborted) return;
-        c.dataset.loading = "false";
-        const overlay = c.querySelector(".media-progress");
-        if (overlay) {
-          showMediaUnavailableWarning(overlay, {
-            type: "video",
-            filename: file.filename,
-            errorStatus: "404",
-            message: "Failed to load video stream",
-            onRetry: () => {
-              c.querySelectorAll("video").forEach((v) => v.remove());
-              delete c.dataset.loading;
-              delete c.dataset.loaded;
-              loadAndDisplayDropboxItem(c, file, signal);
-            }
-          });
-        }
-      };
-
-      if (!video.src || video.src !== streamUrl) {
-        video.src = streamUrl;
-      }
-    });
-
-  } else {
-    allMatchingContainers.forEach((c) => {
-      let img = c.querySelector("img");
-      if (!img) {
-        img = document.createElement("img");
-        img.style.maxWidth = "100%";
-        img.style.maxHeight = "100%";
-        img.style.objectFit = "contain";
-        img.decoding = "async";
-        c.appendChild(img);
-      }
-
-      img.onload = () => {
         allMatchingContainers.forEach((target) => {
-          target.dataset.loaded = "true";
-          target.dataset.loading = "false";
-          const o = target.querySelector(".media-progress");
-          if (o) o.style.display = "none";
+          delete target.dataset.loading;
+          delete target.dataset.loaded;
+          target.querySelectorAll("video").forEach((v) => v.remove());
+        });
+
+        let errorStatus = "500";
+        let errorMsg = "Failed to load video stream";
+        try {
+          const probeRes = await fetch(streamUrl, { method: "HEAD", signal });
+          if (!probeRes.ok) {
+            errorStatus = String(probeRes.status);
+            errorMsg = probeRes.status === 404 ? "File not found" : (probeRes.status === 429 ? "Too many requests" : `Server error (HTTP ${probeRes.status})`);
+          }
+        } catch (_) {}
+
+        allMatchingContainers.forEach((target) => {
+          const overlay = target.querySelector(".media-progress");
+          if (overlay) {
+            overlay.style.display = "flex";
+            showMediaUnavailableWarning(overlay, {
+              type: "video",
+              filename: file.filename,
+              errorStatus: errorStatus,
+              message: errorMsg,
+              externalUrl: targetUrl,
+              onRetry: () => {
+                allMatchingContainers.forEach((t) => {
+                  t.querySelectorAll("video, img").forEach((el) => el.remove());
+                  delete t.dataset.loading;
+                  delete t.dataset.loaded;
+                });
+                loadAndDisplayDropboxItem(container, file, signal);
+              }
+            });
+          }
         });
       };
 
-      img.onerror = () => {
-        if (signal && signal.aborted) return;
-        c.dataset.loading = "false";
-        const overlay = c.querySelector(".media-progress");
+      video.src = streamUrl;
+    });
+  } else {
+    // Off-screen Image instance so broken image icon is never shown in DOM
+    const img = new Image();
+    img.style.maxWidth = "100%";
+    img.style.maxHeight = "100%";
+    img.style.objectFit = "contain";
+    img.decoding = "async";
+
+    img.onload = () => {
+      if (signal && signal.aborted) return;
+      allMatchingContainers.forEach((target) => {
+        target.dataset.loaded = "true";
+        delete target.dataset.loading;
+        target.querySelectorAll("img, video").forEach((el) => el.remove());
+        target.appendChild(img.cloneNode(true));
+        const o = target.querySelector(".media-progress");
+        if (o) o.style.display = "none";
+      });
+    };
+
+    img.onerror = async () => {
+      if (signal && signal.aborted) return;
+      allMatchingContainers.forEach((target) => {
+        delete target.dataset.loading;
+        delete target.dataset.loaded;
+        target.querySelectorAll("img, video").forEach((el) => el.remove());
+      });
+
+      let errorStatus = "500";
+      let errorMsg = "Failed to load image";
+      try {
+        const probeRes = await fetch(streamUrl, { method: "HEAD", signal });
+        if (!probeRes.ok) {
+          errorStatus = String(probeRes.status);
+          errorMsg = probeRes.status === 404 ? "File not found" : (probeRes.status === 429 ? "Too many requests" : `Server error (HTTP ${probeRes.status})`);
+        } else {
+          const ct = probeRes.headers.get("content-type") || "";
+          if (ct.includes("text/html")) {
+            errorStatus = "500";
+            errorMsg = "Dropbox returned HTML instead of image bytes";
+          }
+        }
+      } catch (_) {}
+
+      allMatchingContainers.forEach((target) => {
+        const overlay = target.querySelector(".media-progress");
         if (overlay) {
+          overlay.style.display = "flex";
           showMediaUnavailableWarning(overlay, {
             type: "image",
             filename: file.filename,
-            errorStatus: "404",
-            message: "Failed to load image",
+            errorStatus: errorStatus,
+            message: errorMsg,
+            externalUrl: targetUrl,
             onRetry: () => {
-              c.querySelectorAll("img").forEach((i) => i.remove());
-              delete c.dataset.loading;
-              delete c.dataset.loaded;
-              loadAndDisplayDropboxItem(c, file, signal);
+              allMatchingContainers.forEach((t) => {
+                t.querySelectorAll("img, video").forEach((el) => el.remove());
+                delete t.dataset.loading;
+                delete t.dataset.loaded;
+              });
+              loadAndDisplayDropboxItem(container, file, signal);
             }
           });
         }
-      };
+      });
+    };
 
-      if (!img.src || img.src !== streamUrl) {
-        img.src = streamUrl;
-      }
-    });
+    img.src = streamUrl;
   }
 }

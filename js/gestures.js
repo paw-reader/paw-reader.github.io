@@ -12,7 +12,7 @@ export function initGestures() {
   let resizeTimer = null;
 
   window.addEventListener("resize", () => {
-    if (!feed || !feedView || !feedView.classList.contains("active")) return;
+    if (!feed || !feedView || !feedView.classList.contains("active") || !feed.querySelector(".post-card")) return;
     
     isResizing = true;
     feed.style.scrollSnapType = "none"; 
@@ -64,7 +64,9 @@ export function initGestures() {
       feedScrollTimeout = setTimeout(() => {
         delete el.dataset.targetScroll;
         delete el.dataset.scrollDir;
-        el.style.scrollSnapType = "";
+        if (!el.classList.contains("continuous-scroll") && feed.querySelector(".post-card")) {
+          el.style.scrollSnapType = "";
+        }
       }, 150);
 
       clearTimeout(recycleTimeout);
@@ -160,14 +162,8 @@ export function initGestures() {
           e.preventDefault();
           const active = getActiveMediaItem();
           if (active && active.folderRow) {
-            const w = active.folderRow.clientWidth || window.innerWidth;
-            const target = (e.key === "ArrowLeft" || e.key.toLowerCase() === "a")
-              ? Math.max(0, active.folderRow.scrollLeft - w)
-              : Math.min(active.folderRow.scrollWidth - w, active.folderRow.scrollLeft + w);
-            active.folderRow.scrollTo({
-              left: target,
-              behavior: window.pawAnimationsDisabled ? "auto" : "smooth"
-            });
+            const dir = (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") ? "left" : "right";
+            navigateCarousel(active.folderRow, dir, active.totalFiles, true);
           }
           return;
         }
@@ -187,7 +183,7 @@ export function initGestures() {
       return;
     }
 
-    if (!feedView || !feedView.classList.contains("active")) return;
+    if (!feedView || !feedView.classList.contains("active") || !feed || !feed.querySelector(".post-card")) return;
 
     if (e.key === "ArrowUp" || e.key.toLowerCase() === "w") {
       e.preventDefault();
@@ -233,6 +229,35 @@ export function initGestures() {
     }
   });
 
+  function shouldIgnoreFeedGestures(e) {
+    if (
+      e.target.closest("#zip-nav") ||
+      e.target.closest("#zip-indicator") ||
+      e.target.closest("#settings-menu") ||
+      e.target.closest(".media-progress") ||
+      e.target.closest("#creators-view") ||
+      e.target.closest(".creators-grid") ||
+      e.target.closest(".tags-container") ||
+      e.target.closest(".zip-info-text") ||
+      e.target.closest(".post-info") ||
+      e.target.closest("#nav-tabs") ||
+      e.target.closest("#zip-nav-dropdown")
+    ) {
+      return true;
+    }
+
+    // Inside feed, only hijack gestures when feed is displaying post-cards
+    // and the touch/wheel target is within a post-card. On Tags, Similar Artists,
+    // Linked Accounts, or placeholders, preserve native scrolling.
+    if (e.target.closest("#feed")) {
+      if (!feed || !feed.querySelector(".post-card") || !e.target.closest(".post-card")) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   let wheelAccumX = 0;
   let wheelAccumY = 0;
   let wheelAccumTimer = null;
@@ -242,16 +267,7 @@ export function initGestures() {
     "wheel",
     (e) => {
       if (!window.pawAnimationsDisabled) return;
-      if (
-        e.target.closest("#zip-nav") ||
-        e.target.closest("#zip-indicator") ||
-        e.target.closest("#settings-menu") ||
-        e.target.closest(".media-progress") ||
-        e.target.closest("#creators-view") ||
-        e.target.closest(".zip-info-text") ||
-        e.target.closest("#nav-tabs")
-      )
-        return;
+      if (shouldIgnoreFeedGestures(e)) return;
 
       const textCard = e.target.closest(".post-text-card");
       if (textCard) {
@@ -293,12 +309,7 @@ export function initGestures() {
             else if (stepsY < 0) navigateFolder("up");
           } else if (active && active.folderRow) {
             wheelAccumX = 0;
-            const w = active.folderRow.clientWidth || window.innerWidth;
-            const target = stepsX > 0 ? active.folderRow.scrollLeft + w : active.folderRow.scrollLeft - w;
-            active.folderRow.scrollTo({
-              left: Math.max(0, Math.min(target, active.folderRow.scrollWidth - w)),
-              behavior: "auto"
-            });
+            navigateCarousel(active.folderRow, stepsX > 0 ? "right" : "left", active.totalFiles);
           }
           return;
         }
@@ -307,14 +318,11 @@ export function initGestures() {
         wheelAccumY -= stepsY * SCROLL_THRESHOLD;
         
         let steps = Math.abs(stepsX) >= Math.abs(stepsY) ? stepsX : stepsY;
-        
-        let clampedStep = Math.sign(steps); 
-
-        const w = window.innerWidth;
-        let target = Math.round(zipC.scrollLeft / w) * w;
-        target += clampedStep * w;
-        target = Math.max(0, Math.min(target, zipC.scrollWidth - zipC.clientWidth));
-        zipC.scrollTo({ left: target, behavior: "auto" });
+        const count = parseInt(zipC.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
+        if (count > 1) {
+          navigateCarousel(zipC, steps > 0 ? "right" : "left", count);
+        }
+        return;
       } else if (carousel && Math.abs(wheelAccumX) > Math.abs(wheelAccumY)) {
         wheelAccumX -= stepsX * SCROLL_THRESHOLD;
 
@@ -326,7 +334,8 @@ export function initGestures() {
         target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
         carousel.scrollTo({ left: target, behavior: "auto" });
         wheelAccumY = 0;
-      } else if (feedEl && feedView && !feedView.classList.contains("hidden")) {
+      } else if (feedEl && feedView && feedView.classList.contains("active")) {
+        if (!feed || !feed.querySelector(".post-card")) return;
         wheelAccumY -= stepsY * SCROLL_THRESHOLD;
 
         const h = window.innerHeight;
@@ -349,16 +358,7 @@ export function initGestures() {
     (e) => {
       if (!window.pawAnimationsDisabled) return;
       if (e.touches.length !== 1) return;
-      if (
-        e.target.closest("#zip-nav") ||
-        e.target.closest("#zip-indicator") ||
-        e.target.closest("#settings-menu") ||
-        e.target.closest(".media-progress") ||
-        e.target.closest("#creators-view") ||
-        e.target.closest(".zip-info-text") ||
-        e.target.closest("#nav-tabs")
-      )
-        return;
+      if (shouldIgnoreFeedGestures(e)) return;
       globalTouchStartX = e.touches[0].clientX;
       globalTouchStartY = e.touches[0].clientY;
       touchHijackHandled = false;
@@ -370,16 +370,7 @@ export function initGestures() {
     "touchmove",
     (e) => {
       if (!window.pawAnimationsDisabled) return;
-      if (
-        e.target.closest("#zip-nav") ||
-        e.target.closest("#zip-indicator") ||
-        e.target.closest("#settings-menu") ||
-        e.target.closest(".media-progress") ||
-        e.target.closest("#creators-view") ||
-        e.target.closest(".zip-info-text") ||
-        e.target.closest("#nav-tabs")
-      )
-        return;
+      if (shouldIgnoreFeedGestures(e)) return;
 
       const textCard = e.target.closest(".post-text-card");
       if (textCard) {
@@ -396,16 +387,7 @@ export function initGestures() {
 
   document.addEventListener("touchend", (e) => {
     if (!window.pawAnimationsDisabled) return;
-    if (
-      e.target.closest("#zip-nav") ||
-      e.target.closest("#zip-indicator") ||
-      e.target.closest("#settings-menu") ||
-      e.target.closest(".media-progress") ||
-      e.target.closest("#creators-view") ||
-      e.target.closest(".zip-info-text") ||
-      e.target.closest("#nav-tabs")
-    )
-      return;
+    if (shouldIgnoreFeedGestures(e)) return;
 
     const textCard = e.target.closest(".post-text-card");
     if (textCard) {
@@ -434,26 +416,18 @@ export function initGestures() {
           if (dy > 30) navigateFolder("down");
           else if (dy < -30) navigateFolder("up");
         } else if (active && active.folderRow) {
-          const w = window.innerWidth;
-          let target = Math.round(active.folderRow.scrollLeft / w) * w;
-          if (dx > 30) target += w;
-          else if (dx < -30) target -= w;
-          active.folderRow.scrollTo({
-            left: Math.max(0, Math.min(target, active.folderRow.scrollWidth - w)),
-            behavior: "auto"
-          });
+          navigateCarousel(active.folderRow, dx > 30 ? "right" : "left", active.totalFiles);
         }
         return;
       }
 
       if (Math.abs(dx) > Math.abs(dy)) {
-        const w = window.innerWidth;
-        let target = Math.round(zipC.scrollLeft / w) * w;
-        if (dx > 30) target += w;
-        else if (dx < -30) target -= w;
-        target = Math.max(0, Math.min(target, zipC.scrollWidth - zipC.clientWidth));
-        zipC.scrollTo({ left: target, behavior: "auto" });
+        const count = parseInt(zipC.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
+        if (count > 1) {
+          navigateCarousel(zipC, dx > 30 ? "right" : "left", count);
+        }
       }
+      return;
     } else if (carousel && Math.abs(dx) > Math.abs(dy)) {
       const w = window.innerWidth;
       let target = Math.round(carousel.scrollLeft / w) * w;
@@ -462,6 +436,7 @@ export function initGestures() {
       target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
       carousel.scrollTo({ left: target, behavior: "auto" });
     } else if (feedEl && feedView && feedView.classList.contains("active")) {
+      if (!feed || !feed.querySelector(".post-card")) return;
       const h = window.innerHeight;
       let target = Math.round(feedEl.scrollTop / h) * h;
       if (dy > 30) target += h;
