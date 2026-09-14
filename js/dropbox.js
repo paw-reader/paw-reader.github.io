@@ -1,5 +1,5 @@
 import { PROXY_URL, state } from "./state.js";
-import { zipViewer, zipTitle, zipContent, zipIndicator, setZipNavVisible, closeZipGallery, render2DMatrixGallery, updateZipIndicatorsAndHUD } from "./zip.js";
+import { zipViewer, zipTitle, zipContent, zipIndicator, setZipNavVisible, closeZipGallery, render2DMatrixGallery, appendFolderGroupTo2DMatrix, updateZipScanProgress, updateZipIndicatorsAndHUD } from "./zip.js";
 import { formatBytes, showMediaUnavailableWarning, renderMediaProgress, renderArchiveProgress } from "./utils.js";
 import { syncCarouselClones, playbackObserver, getCurrentGalleryPost } from "./feed.js";
 import { createExternalAbortSignal, renderArchiveCardUI, escapeHtml, isImageOrVideo } from "./externalGalleries.js";
@@ -629,18 +629,19 @@ async function progressivelyExpandDropboxTree(cardItem, rootUrl, initialEntries,
  * Recursively discovers all subfolders and media files inside a Dropbox shared directory,
  * grouping them by directory path for 2D matrix navigation.
  */
-export async function crawlAllDropboxFolders(rootUrl, rootName, initialEntries, signal, onProgress) {
+export async function crawlAllDropboxFolders(rootUrl, rootName, initialEntries, signal, onProgress, onFolderDiscovered) {
   const folderGroupsMap = new Map();
   const seenUrls = new Set();
   seenUrls.add(rootUrl);
 
   const rootFiles = (initialEntries || []).filter((e) => !e.is_dir && isImageOrVideo(e.filename));
   if (rootFiles.length > 0) {
-    folderGroupsMap.set(rootName, {
+    const rootGroup = {
       folderName: rootName,
       folderPath: rootName,
       files: rootFiles
-    });
+    };
+    folderGroupsMap.set(rootName, rootGroup);
   }
 
   const queue = (initialEntries || [])
@@ -651,8 +652,8 @@ export async function crawlAllDropboxFolders(rootUrl, rootName, initialEntries, 
     seenUrls.add(item.url);
   }
 
-  const MAX_CONCURRENT = 5;
-  const MAX_FOLDERS = 100;
+  const MAX_CONCURRENT = 6;
+  const MAX_FOLDERS = 150;
   let crawled = 0;
 
   async function crawlWorker() {
@@ -672,11 +673,15 @@ export async function crawlAllDropboxFolders(rootUrl, rootName, initialEntries, 
         const subEntries = subData.entries || [];
         const files = subEntries.filter((e) => !e.is_dir && isImageOrVideo(e.filename));
         if (files.length > 0) {
-          folderGroupsMap.set(curr.path, {
+          const group = {
             folderName: curr.name,
             folderPath: curr.path,
             files: files
-          });
+          };
+          folderGroupsMap.set(curr.path, group);
+          if (onFolderDiscovered) {
+            onFolderDiscovered(group);
+          }
         }
 
         for (const child of subEntries) {
@@ -839,32 +844,80 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
     }
 
     const currentFolderName = data.folder_name || galleryTitle || "Dropbox Folder";
+    const rootFiles = entries.filter((e) => !e.is_dir && isImageOrVideo(e.filename));
+    const subfolderEntries = entries.filter((e) => e.is_dir && e.href);
 
-    // Crawl all subfolders to collect folder groups for 2D matrix gallery
-    const folderGroups = await crawlAllDropboxFolders(dropboxUrl, currentFolderName, entries, signal, (scannedCount) => {
-      const p = document.getElementById("zip-progress-text");
-      if (p) renderArchiveProgress(p, `Scanning folders (${scannedCount} scanned)...`, null, galleryTitle || "Dropbox Gallery");
+    const convertToMatrixGroup = (group) => ({
+      folderName: group.folderName,
+      folderPath: group.folderPath,
+      files: group.files.map((f, idx) => ({
+        filename: f.filename,
+        folder: group.folderPath,
+        size: f.bytes || 0,
+        link: f.href || f.rawUrl || "",
+        loadMedia: (container, sig) => {
+          container.dataset.fileIdx = String(idx);
+          loadAndDisplayDropboxItem(container, f, sig);
+        }
+      }))
     });
 
-    if (signal.aborted) return;
+    let galleryMounted = false;
+    let totalFoldersFound = 0;
 
-    if (folderGroups && folderGroups.length > 0) {
-      const matrixGroups = folderGroups.map((group) => ({
-        folderName: group.folderName,
-        folderPath: group.folderPath,
-        files: group.files.map((f, idx) => ({
-          filename: f.filename,
-          folder: group.folderPath,
-          size: f.bytes || 0,
-          link: f.href || f.rawUrl || "",
-          loadMedia: (container, sig) => {
-            container.dataset.fileIdx = String(idx);
-            loadAndDisplayDropboxItem(container, f, sig);
+    // Fast Path: If root has media files, mount 2D matrix immediately in <400ms!
+    if (rootFiles.length > 0) {
+      const rootGroup = {
+        folderName: currentFolderName,
+        folderPath: currentFolderName,
+        files: rootFiles
+      };
+      totalFoldersFound++;
+      render2DMatrixGallery([convertToMatrixGroup(rootGroup)], { galleryTitle: currentFolderName, signal });
+      galleryMounted = true;
+    }
+
+    // If there are subfolders, progressively crawl them in the background
+    if (subfolderEntries.length > 0) {
+      if (galleryMounted) {
+        updateZipScanProgress("Scanning subfolders...");
+      } else {
+        const p = document.getElementById("zip-progress-text");
+        if (p) renderArchiveProgress(p, "Scanning folders...", null, galleryTitle || "Dropbox Gallery");
+      }
+
+      await crawlAllDropboxFolders(
+        dropboxUrl,
+        currentFolderName,
+        entries,
+        signal,
+        (scannedCount) => {
+          if (galleryMounted) {
+            updateZipScanProgress(`Scanning subfolders... (${totalFoldersFound} found)`);
+          } else {
+            const p = document.getElementById("zip-progress-text");
+            if (p) renderArchiveProgress(p, `Scanning folders (${scannedCount} scanned)...`, null, galleryTitle || "Dropbox Gallery");
           }
-        }))
-      }));
+        },
+        (discoveredGroup) => {
+          if (signal.aborted) return;
+          totalFoldersFound++;
+          const matrixGroup = convertToMatrixGroup(discoveredGroup);
+          if (!galleryMounted) {
+            render2DMatrixGallery([matrixGroup], { galleryTitle: currentFolderName, signal });
+            galleryMounted = true;
+          } else {
+            appendFolderGroupTo2DMatrix(matrixGroup, { signal });
+          }
+          updateZipScanProgress(`Scanning subfolders... (${totalFoldersFound} found)`);
+        }
+      );
 
-      render2DMatrixGallery(matrixGroups, { galleryTitle: currentFolderName, signal });
+      if (signal.aborted) return;
+      updateZipScanProgress(""); // clear badge when done
+    }
+
+    if (galleryMounted) {
       return;
     }
 

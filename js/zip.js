@@ -53,6 +53,8 @@ export function closeZipGallery() {
   }
   const floatingBack = document.getElementById("dropbox-carousel-back-btn");
   if (floatingBack) floatingBack.remove();
+  const scanBadge = document.getElementById("zip-bg-scan-badge");
+  if (scanBadge) scanBadge.remove();
   if (window.zipMediaObserver) {
     window.zipMediaObserver.disconnect();
   }
@@ -130,9 +132,14 @@ export function getActiveMediaItem() {
     const count = nonClones.length || parseInt(activeRow.dataset.mediaCount, 10) || items.length;
     const pool = nonClones.length > 0 ? nonClones : items;
 
+    // If activeRow has clones and scrollLeft is 0 (initial unaligned state), align it to slide 1
+    if (activeRow.children.length > 2 && activeRow.scrollLeft === 0 && count > 1) {
+      alignFolderRowToFirstSlide(activeRow, count);
+    }
+
     let closestItem = pool[0];
     let minDiffX = Infinity;
-    const viewportMidX = window.innerWidth / 2;
+    const viewportMidX = (window.innerWidth || zipContent?.clientWidth || 1024) / 2;
 
     for (let j = 0; j < items.length; j++) {
       const itemRect = items[j].getBoundingClientRect();
@@ -148,7 +155,11 @@ export function getActiveMediaItem() {
     if (closestItem && closestItem.dataset.fileIdx !== undefined) {
       const parsedIdx = parseInt(closestItem.dataset.fileIdx, 10);
       if (!isNaN(parsedIdx) && parsedIdx >= 0) {
-        realIdx = parsedIdx;
+        if (closestItem.dataset.isClone === "true" && parsedIdx === count - 1 && activeRow.scrollLeft === 0) {
+          realIdx = 0;
+        } else {
+          realIdx = parsedIdx;
+        }
       }
     }
     const activeItem = pool[realIdx] || closestItem || pool[0];
@@ -383,11 +394,7 @@ export function jumpToFolder(folderIdx) {
   delete targetFolderRow._targetIndex;
 
   const count = targetFolderRow.dataset.mediaCount ? parseInt(targetFolderRow.dataset.mediaCount, 10) : 0;
-  const nonClones = Array.from(targetFolderRow.querySelectorAll(".media-item:not([data-is-clone='true'])"));
-  const firstSlide = nonClones[0];
-  const itemWidth = targetFolderRow.clientWidth || window.innerWidth;
-  const targetX = firstSlide ? firstSlide.offsetLeft : (count > 1 ? 1 * itemWidth : 0);
-  targetFolderRow.scrollLeft = targetX;
+  alignFolderRowToFirstSlide(targetFolderRow, count);
 
   // 3. Jump vertically directly and accurately to target folder row without window-scrolling side effects
   const rowHeight = targetFolderRow.clientHeight || zipContent.clientHeight || window.innerHeight;
@@ -896,9 +903,7 @@ export function navigateFolder(direction) {
   zipContent._targetFolderIndex = nextIndex;
   const targetFolderRow = rows[nextIndex];
   if (targetFolderRow && targetFolderRow.children.length > 2 && targetFolderRow.scrollLeft === 0) {
-    const { firstOffset } = getCarouselMetrics(targetFolderRow);
-    targetFolderRow.scrollLeft = firstOffset;
-    targetFolderRow._restingScrollLeft = firstOffset;
+    alignFolderRowToFirstSlide(targetFolderRow, parseInt(targetFolderRow.dataset.mediaCount || "0", 10));
   }
   const targetY = targetFolderRow && targetFolderRow.offsetTop !== undefined && targetFolderRow.offsetTop >= 0
     ? targetFolderRow.offsetTop
@@ -931,6 +936,265 @@ export function navigateFolder(direction) {
     }
     updateZipIndicatorsAndHUD();
   });
+}
+
+/**
+ * Aligns a folder row's horizontal scroll position to the first actual media slide (skipping cloneLast).
+ */
+export function alignFolderRowToFirstSlide(folderRow, filesCount) {
+  if (!folderRow || filesCount <= 1) return;
+
+  const itemWidth = folderRow.clientWidth || zipContent?.clientWidth || window.innerWidth || 1024;
+  const nonClones = Array.from(folderRow.querySelectorAll(".media-item:not([data-is-clone='true'])"));
+  const firstSlide = nonClones[0] || folderRow.children[1];
+
+  let targetX = 0;
+  if (firstSlide && firstSlide.offsetLeft > 0) {
+    targetX = firstSlide.offsetLeft;
+  } else {
+    // 100% item width + 20px gap defined in style.css
+    targetX = itemWidth + 20;
+  }
+
+  folderRow.style.scrollSnapType = "none";
+  folderRow.scrollLeft = targetX;
+  folderRow._restingScrollLeft = targetX;
+
+  const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (typeof window !== "undefined" && window.requestAnimationFrame ? window.requestAnimationFrame : ((fn) => setTimeout(fn, 0)));
+  raf(() => {
+    if (!folderRow.isConnected) return;
+    const resolvedSlide = folderRow.children[1] || nonClones[0];
+    const resolvedX = (resolvedSlide && resolvedSlide.offsetLeft > 0)
+      ? resolvedSlide.offsetLeft
+      : (folderRow.clientWidth ? folderRow.clientWidth + 20 : targetX);
+
+    if (resolvedX > 0) {
+      folderRow.scrollLeft = resolvedX;
+      folderRow._restingScrollLeft = resolvedX;
+    }
+    folderRow.style.scrollSnapType = "";
+    updateZipIndicatorsAndHUD();
+  });
+}
+
+/**
+ * Creates and configures a single 2D matrix folder row element with slides, circular clones, and gestures.
+ */
+export function createFolderRowElement(group, folderIdx, options = {}) {
+  const pCount = Math.max(1, window.pawPreloadCount || 1);
+  if (!window.zipMediaObserver) {
+    window.zipMediaObserver = new IntersectionObserver((entries) => {
+      if (window._isJumpingZipGallery) return;
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const target = entry.target;
+          if (target.dataset.loaded === "true" || target.dataset.loading === "true") return;
+          if (target.dataset.isClone === "true" && entry.intersectionRatio < 0.5) return;
+          const loader = target._loadMedia;
+          if (typeof loader === "function") {
+            loader(target, options.signal);
+          }
+        }
+      });
+    }, {
+      root: null,
+      rootMargin: `20% ${pCount * 100}% 20% ${pCount * 100}%`,
+      threshold: [0, 0.5]
+    });
+  }
+
+  const folderRow = document.createElement("div");
+  folderRow.className = "zip-folder-row";
+  folderRow.dataset.folderName = group.folderName;
+  folderRow.dataset.folderPath = group.folderPath || group.folderName;
+  folderRow.dataset.folderIdx = String(folderIdx);
+  folderRow.dataset.mediaCount = String(group.files.length);
+
+  group.files.forEach((file, fileIdx) => {
+    const slide = document.createElement("div");
+    slide.className = "media-item";
+    slide.dataset.filename = file.filename;
+    slide.dataset.folder = group.folderPath || group.folderName;
+    slide.dataset.size = String(file.size || 0);
+    slide.dataset.link = file.link || "";
+    slide.dataset.fileIdx = String(fileIdx);
+    if (file.fileId) slide.dataset.fileId = file.fileId;
+    slide._loadMedia = file.loadMedia;
+
+    const progress = document.createElement("div");
+    progress.className = "media-progress";
+    progress.style.display = "flex";
+    renderMediaProgress(progress, "Loading...", null, file.filename, file.size ? formatBytes(file.size) : "", "");
+    slide.appendChild(progress);
+
+    folderRow.appendChild(slide);
+    window.zipMediaObserver.observe(slide);
+  });
+
+  // Infinite loop clones for horizontal navigation
+  if (group.files.length > 1 && folderRow.children.length > 1) {
+    const firstChild = folderRow.children[0];
+    const lastChild = folderRow.children[folderRow.children.length - 1];
+    const cloneFirst = firstChild.cloneNode(true);
+    const cloneLast = lastChild.cloneNode(true);
+
+    cloneFirst.dataset.isClone = "true";
+    cloneLast.dataset.isClone = "true";
+    cloneFirst._loadMedia = firstChild._loadMedia;
+    cloneLast._loadMedia = lastChild._loadMedia;
+
+    cloneFirst.querySelectorAll("video, img").forEach((el) => el.remove());
+    cloneLast.querySelectorAll("video, img").forEach((el) => el.remove());
+    delete cloneFirst.dataset.loading;
+    delete cloneFirst.dataset.loaded;
+    delete cloneLast.dataset.loading;
+    delete cloneLast.dataset.loaded;
+
+    const p1 = cloneFirst.querySelector(".media-progress");
+    if (p1) p1.style.display = "flex";
+    const p2 = cloneLast.querySelector(".media-progress");
+    if (p2) p2.style.display = "flex";
+
+    folderRow.insertBefore(cloneLast, firstChild);
+    folderRow.appendChild(cloneFirst);
+
+    window.zipMediaObserver.observe(cloneFirst);
+    window.zipMediaObserver.observe(cloneLast);
+  }
+
+  let rowSettleTimer;
+  folderRow.addEventListener("touchstart", () => {
+    folderRow._isTouching = true;
+    folderRow._restingScrollLeft = folderRow.scrollLeft;
+    clearTimeout(rowSettleTimer);
+  }, { passive: true });
+
+  folderRow.addEventListener("touchend", () => {
+    folderRow._isTouching = false;
+    if (group.files.length > 1 && !folderRow._animId) {
+      clearTimeout(rowSettleTimer);
+      rowSettleTimer = setTimeout(() => {
+        handleCarouselScrollSettled(folderRow, group.files.length);
+        folderRow._restingScrollLeft = folderRow.scrollLeft;
+      }, 150);
+    }
+  }, { passive: true });
+
+  folderRow.addEventListener("touchcancel", () => {
+    folderRow._isTouching = false;
+  }, { passive: true });
+
+  folderRow.addEventListener("scroll", () => {
+    if (folderRow._isVerticalScrolling && folderRow._restingScrollLeft !== undefined) {
+      folderRow.scrollLeft = folderRow._restingScrollLeft;
+      return;
+    }
+    closeZipNavDropdown();
+    updateZipIndicatorsAndHUD();
+    if (!folderRow._animId && !folderRow._isTouching && group.files.length > 1) {
+      clearTimeout(rowSettleTimer);
+      rowSettleTimer = setTimeout(() => {
+        handleCarouselScrollSettled(folderRow, group.files.length);
+        folderRow._restingScrollLeft = folderRow.scrollLeft;
+      }, 150);
+    }
+  }, { passive: true });
+
+  folderRow.addEventListener("scrollend", () => {
+    if (!folderRow._animId && !folderRow._isTouching && group.files.length > 1) {
+      handleCarouselScrollSettled(folderRow, group.files.length);
+      folderRow._restingScrollLeft = folderRow.scrollLeft;
+    }
+  });
+
+  const estimatedWidth = folderRow.clientWidth || window.innerWidth || 1024;
+  const initialOffset = group.files.length > 1
+    ? ((folderRow.children[1] && folderRow.children[1].offsetLeft > 0) ? folderRow.children[1].offsetLeft : estimatedWidth + 20)
+    : 0;
+  folderRow.scrollLeft = initialOffset;
+  folderRow._restingScrollLeft = initialOffset;
+
+  return folderRow;
+}
+
+/**
+ * Progressively appends or inserts a folder group into the active 2D matrix gallery in sorted order.
+ */
+export function appendFolderGroupTo2DMatrix(group, options = {}) {
+  if (!zipContent) return false;
+  if (!group || !group.files || group.files.length === 0) return false;
+
+  // If gallery-2d-mode is not set or zipContent has no rows, initialize cleanly
+  if (!zipContent.classList.contains("gallery-2d-mode") || zipContent.querySelectorAll(".zip-folder-row").length === 0) {
+    render2DMatrixGallery([group], options);
+    return true;
+  }
+
+  const targetPath = group.folderPath || group.folderName;
+  const existingRows = Array.from(zipContent.querySelectorAll(".zip-folder-row"));
+
+  // Check if row already exists
+  if (existingRows.some((r) => (r.dataset.folderPath || r.dataset.folderName) === targetPath)) {
+    return false;
+  }
+
+  // Find alphabetical / natural insertion point
+  let insertBeforeRow = null;
+  for (const r of existingRows) {
+    const p = r.dataset.folderPath || r.dataset.folderName || "";
+    if (p.localeCompare(targetPath, undefined, { numeric: true, sensitivity: "base" }) > 0) {
+      insertBeforeRow = r;
+      break;
+    }
+  }
+
+  const row = createFolderRowElement(group, 0, options);
+  if (insertBeforeRow) {
+    zipContent.insertBefore(row, insertBeforeRow);
+  } else {
+    zipContent.appendChild(row);
+  }
+  alignFolderRowToFirstSlide(row, group.files.length);
+
+  // Re-index folderIdx
+  const updatedRows = Array.from(zipContent.querySelectorAll(".zip-folder-row"));
+  updatedRows.forEach((r, idx) => {
+    r.dataset.folderIdx = String(idx);
+  });
+
+  updateZipIndicatorsAndHUD();
+  return true;
+}
+
+/**
+ * Non-blocking progress indicator in the gallery HUD for background folder discovery.
+ */
+export function updateZipScanProgress(statusText) {
+  let badge = document.getElementById("zip-bg-scan-badge");
+  if (!statusText) {
+    if (badge) {
+      badge.style.opacity = "0";
+      setTimeout(() => {
+        if (badge && badge.parentElement) badge.remove();
+      }, 300);
+    }
+    return;
+  }
+
+  if (!badge) {
+    badge = document.createElement("div");
+    badge.id = "zip-bg-scan-badge";
+    badge.className = "zip-bg-scan-badge";
+    badge.style.cssText = "position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: rgba(20, 20, 25, 0.88); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(88, 166, 255, 0.4); color: #8be9fd; font-size: 0.8rem; font-weight: 600; padding: 5px 14px; border-radius: 20px; pointer-events: none; z-index: 2100; transition: opacity 0.3s ease; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.4);";
+    if (zipViewer) {
+      zipViewer.appendChild(badge);
+    } else {
+      document.body.appendChild(badge);
+    }
+  }
+
+  badge.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg><span>${escapeHtml(statusText)}</span>`;
+  badge.style.opacity = "1";
 }
 
 /**
@@ -997,116 +1261,9 @@ export function render2DMatrixGallery(folderGroups, options = {}) {
   });
 
   validGroups.forEach((group, folderIdx) => {
-    const folderRow = document.createElement("div");
-    folderRow.className = "zip-folder-row";
-    folderRow.dataset.folderName = group.folderName;
-    folderRow.dataset.folderPath = group.folderPath || group.folderName;
-    folderRow.dataset.folderIdx = String(folderIdx);
-    folderRow.dataset.mediaCount = String(group.files.length);
-
-    group.files.forEach((file, fileIdx) => {
-      const slide = document.createElement("div");
-      slide.className = "media-item";
-      slide.dataset.filename = file.filename;
-      slide.dataset.folder = group.folderPath || group.folderName;
-      slide.dataset.size = String(file.size || 0);
-      slide.dataset.link = file.link || "";
-      slide.dataset.fileIdx = String(fileIdx);
-      if (file.fileId) slide.dataset.fileId = file.fileId;
-      slide._loadMedia = file.loadMedia;
-
-      const progress = document.createElement("div");
-      progress.className = "media-progress";
-      progress.style.display = "flex";
-      renderMediaProgress(progress, "Loading...", null, file.filename, file.size ? formatBytes(file.size) : "", "");
-      slide.appendChild(progress);
-
-      folderRow.appendChild(slide);
-      window.zipMediaObserver.observe(slide);
-    });
-
-    // Infinite loop clones for horizontal navigation
-    if (group.files.length > 1 && folderRow.children.length > 1) {
-      const firstChild = folderRow.children[0];
-      const lastChild = folderRow.children[folderRow.children.length - 1];
-      const cloneFirst = firstChild.cloneNode(true);
-      const cloneLast = lastChild.cloneNode(true);
-
-      cloneFirst.dataset.isClone = "true";
-      cloneLast.dataset.isClone = "true";
-      cloneFirst._loadMedia = firstChild._loadMedia;
-      cloneLast._loadMedia = lastChild._loadMedia;
-
-      cloneFirst.querySelectorAll("video, img").forEach((el) => el.remove());
-      cloneLast.querySelectorAll("video, img").forEach((el) => el.remove());
-      delete cloneFirst.dataset.loading;
-      delete cloneFirst.dataset.loaded;
-      delete cloneLast.dataset.loading;
-      delete cloneLast.dataset.loaded;
-
-      const p1 = cloneFirst.querySelector(".media-progress");
-      if (p1) p1.style.display = "flex";
-      const p2 = cloneLast.querySelector(".media-progress");
-      if (p2) p2.style.display = "flex";
-
-      folderRow.insertBefore(cloneLast, firstChild);
-      folderRow.appendChild(cloneFirst);
-
-      window.zipMediaObserver.observe(cloneFirst);
-      window.zipMediaObserver.observe(cloneLast);
-    }
-
-    let rowSettleTimer;
-    folderRow.addEventListener("touchstart", () => {
-      folderRow._isTouching = true;
-      folderRow._restingScrollLeft = folderRow.scrollLeft;
-      clearTimeout(rowSettleTimer);
-    }, { passive: true });
-
-    folderRow.addEventListener("touchend", () => {
-      folderRow._isTouching = false;
-      if (group.files.length > 1 && !folderRow._animId) {
-        clearTimeout(rowSettleTimer);
-        rowSettleTimer = setTimeout(() => {
-          handleCarouselScrollSettled(folderRow, group.files.length);
-          folderRow._restingScrollLeft = folderRow.scrollLeft;
-        }, 150);
-      }
-    }, { passive: true });
-
-    folderRow.addEventListener("touchcancel", () => {
-      folderRow._isTouching = false;
-    }, { passive: true });
-
-    folderRow.addEventListener("scroll", () => {
-      if (folderRow._isVerticalScrolling && folderRow._restingScrollLeft !== undefined) {
-        folderRow.scrollLeft = folderRow._restingScrollLeft;
-        return;
-      }
-      closeZipNavDropdown();
-      updateZipIndicatorsAndHUD();
-      if (!folderRow._animId && !folderRow._isTouching && group.files.length > 1) {
-        clearTimeout(rowSettleTimer);
-        rowSettleTimer = setTimeout(() => {
-          handleCarouselScrollSettled(folderRow, group.files.length);
-          folderRow._restingScrollLeft = folderRow.scrollLeft;
-        }, 150);
-      }
-    }, { passive: true });
-
-    folderRow.addEventListener("scrollend", () => {
-      if (!folderRow._animId && !folderRow._isTouching && group.files.length > 1) {
-        handleCarouselScrollSettled(folderRow, group.files.length);
-        folderRow._restingScrollLeft = folderRow.scrollLeft;
-      }
-    });
-
+    const folderRow = createFolderRowElement(group, folderIdx, options);
     zipContent.appendChild(folderRow);
-    const initialOffset = group.files.length > 1
-      ? (folderRow.children[1] ? folderRow.children[1].offsetLeft : (folderRow.clientWidth || window.innerWidth))
-      : 0;
-    folderRow.scrollLeft = initialOffset;
-    folderRow._restingScrollLeft = initialOffset;
+    alignFolderRowToFirstSlide(folderRow, group.files.length);
   });
 
   zipContent.addEventListener("scroll", () => {

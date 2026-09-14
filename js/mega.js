@@ -120,55 +120,121 @@ export async function decryptAllMegaNodes(nodes, rootFolderKeyBytes) {
     return c;
   }
 
-  let changed = true;
-  let passes = 0;
+  // 1. Index nodes by handle and by parent handle
+  const childrenByParent = new Map();
+  const allNodesByHandle = new Map();
+
+  for (const node of nodes) {
+    if (!node.h || !node.k || !node.a) continue;
+    allNodesByHandle.set(node.h, node);
+    const p = node.p || "";
+    if (!childrenByParent.has(p)) {
+      childrenByParent.set(p, []);
+    }
+    childrenByParent.get(p).push(node);
+  }
+
   let lastYield = performance.now();
 
-  while (changed && passes < 10) {
-    changed = false;
-    passes++;
+  // 2. High-speed O(N) BFS Cascade:
+  // Queue contains { parentHandle: string, key: Uint8Array, cipher: any }
+  // Root items are those whose parent is empty or not in allNodesByHandle
+  const bfsQueue = [];
 
-    for (const node of nodes) {
-      if (decryptedNodes.has(node.h) || !node.k || !node.a) continue;
+  for (const [parentHandle] of childrenByParent.entries()) {
+    if (!parentHandle || !allNodesByHandle.has(parentHandle)) {
+      bfsQueue.push({ parentHandle, key: initialKey, cipher: getCipher(initialKey) });
+    }
+  }
 
-      if (performance.now() - lastYield > 12) {
+  while (bfsQueue.length > 0) {
+    const { parentHandle, key, cipher } = bfsQueue.shift();
+    const children = childrenByParent.get(parentHandle) || [];
+
+    for (const node of children) {
+      if (decryptedNodes.has(node.h)) continue;
+
+      if (performance.now() - lastYield > 16) {
         await new Promise((r) => setTimeout(r, 0));
         lastYield = performance.now();
       }
 
-      const keysToTry = [];
-      if (node.p && nodeKeyMap.has(node.p)) keysToTry.push(nodeKeyMap.get(node.p));
-      if (!keysToTry.includes(initialKey)) keysToTry.push(initialKey);
-      if (passes > 2) {
-        for (const k of availableKeys) if (!keysToTry.includes(k)) keysToTry.push(k);
-      }
+      const res = decryptNodeKey(node.k, key, node.a, cipher);
+      if (res && res.attrs && res.attrs.n) {
+        const name = res.attrs.n;
+        const isFolder = node.t === 1;
+        const folderAesKey = res.rawKey.length === 32
+          ? unmergeKeyMac(res.rawKey).subarray(0, 16)
+          : res.rawKey.subarray(0, 16);
 
-      for (const k of keysToTry) {
-        const res = decryptNodeKey(node.k, k, node.a, getCipher(k));
-        if (res && res.attrs && res.attrs.n) {
-          const name = res.attrs.n;
-          const isFolder = node.t === 1;
-          const folderAesKey = res.rawKey.length === 32
-            ? unmergeKeyMac(res.rawKey).subarray(0, 16)
-            : res.rawKey.subarray(0, 16);
-
-          if (isFolder) {
-            nodeKeyMap.set(node.h, folderAesKey);
-            if (!availableKeys.includes(folderAesKey)) availableKeys.push(folderAesKey);
+        if (isFolder) {
+          nodeKeyMap.set(node.h, folderAesKey);
+          if (!availableKeys.includes(folderAesKey)) availableKeys.push(folderAesKey);
+          if (childrenByParent.has(node.h)) {
+            bfsQueue.push({ parentHandle: node.h, key: folderAesKey, cipher: getCipher(folderAesKey) });
           }
+        }
 
-          decryptedNodes.set(node.h, {
-            node,
-            h: node.h,
-            p: node.p,
-            name,
-            rawKey: res.rawKey,
-            isFolder,
-            size: node.s || 0
-          });
+        decryptedNodes.set(node.h, {
+          node,
+          h: node.h,
+          p: node.p,
+          name,
+          rawKey: res.rawKey,
+          isFolder,
+          size: node.s || 0
+        });
+      }
+    }
+  }
 
-          changed = true;
-          break;
+  // 3. Fallback pass: for any non-standard/orphaned nodes not reached via BFS
+  if (decryptedNodes.size < allNodesByHandle.size) {
+    let changed = true;
+    let passes = 0;
+    while (changed && passes < 3) {
+      changed = false;
+      passes++;
+      for (const node of nodes) {
+        if (decryptedNodes.has(node.h) || !node.k || !node.a) continue;
+
+        if (performance.now() - lastYield > 16) {
+          await new Promise((r) => setTimeout(r, 0));
+          lastYield = performance.now();
+        }
+
+        const keysToTry = [];
+        if (node.p && nodeKeyMap.has(node.p)) keysToTry.push(nodeKeyMap.get(node.p));
+        for (const k of availableKeys) {
+          if (!keysToTry.includes(k)) keysToTry.push(k);
+        }
+
+        for (const k of keysToTry) {
+          const res = decryptNodeKey(node.k, k, node.a, getCipher(k));
+          if (res && res.attrs && res.attrs.n) {
+            const name = res.attrs.n;
+            const isFolder = node.t === 1;
+            const folderAesKey = res.rawKey.length === 32
+              ? unmergeKeyMac(res.rawKey).subarray(0, 16)
+              : res.rawKey.subarray(0, 16);
+
+            if (isFolder) {
+              nodeKeyMap.set(node.h, folderAesKey);
+              if (!availableKeys.includes(folderAesKey)) availableKeys.push(folderAesKey);
+            }
+
+            decryptedNodes.set(node.h, {
+              node,
+              h: node.h,
+              p: node.p,
+              name,
+              rawKey: res.rawKey,
+              isFolder,
+              size: node.s || 0
+            });
+            changed = true;
+            break;
+          }
         }
       }
     }
@@ -818,9 +884,13 @@ async function batchPrefetchMegaDlUrls(files, folderId, signal) {
   const needsDl = files.filter((f) => !f.cachedDlUrl && f.node && f.node.h);
   if (needsDl.length === 0) return;
 
+  const chunks = [];
   for (let i = 0; i < needsDl.length; i += 25) {
+    chunks.push(needsDl.slice(i, i + 25));
+  }
+
+  await Promise.all(chunks.map(async (chunk) => {
     if (signal && signal.aborted) return;
-    const chunk = needsDl.slice(i, i + 25);
     try {
       const body = chunk.map((f) => ({ a: "g", g: 1, ssl: 2, n: f.node.h }));
       const data = await megaApiRequest(`id=${Date.now()}&n=${folderId}`, body, signal);
@@ -833,9 +903,8 @@ async function batchPrefetchMegaDlUrls(files, folderId, signal) {
       }
     } catch (e) {
       console.warn("[Mega] Batch prefetch error:", e.message);
-      break;
     }
-  }
+  }));
 }
 
 export async function openMegaGallery(megaUrl, galleryTitle, post = null) {
@@ -1005,15 +1074,57 @@ export async function openMegaGallery(megaUrl, galleryTitle, post = null) {
       };
     });
 
-    // Prefetch download URLs in a single batch for the starting folder
+    render2DMatrixGallery(folderGroups, { galleryTitle: headerName || galleryTitle, signal });
+
+    // Prefetch download URLs in batches for starting and adjacent folders
     if (folderNames.length > 0) {
       const firstFiles = folderMap.get(folderNames[0]);
       if (firstFiles && firstFiles.length > 0) {
-        batchPrefetchMegaDlUrls(firstFiles.slice(0, 30), parsed.id, signal).catch(() => {});
+        batchPrefetchMegaDlUrls(firstFiles.slice(0, 50), parsed.id, signal).catch(() => {});
+      }
+      if (folderNames.length > 1) {
+        const secondFiles = folderMap.get(folderNames[1]);
+        if (secondFiles && secondFiles.length > 0) {
+          batchPrefetchMegaDlUrls(secondFiles.slice(0, 25), parsed.id, signal).catch(() => {});
+        }
       }
     }
 
-    render2DMatrixGallery(folderGroups, { galleryTitle: headerName || galleryTitle, signal });
+    // Attach row-level prefetcher on vertical navigation
+    if (zipContent && folderNames.length > 1) {
+      let lastPrefetchedRowIdx = 0;
+      let rowPrefetchTimer = null;
+      const onScrollPrefetch = () => {
+        if (signal.aborted || !zipContent) return;
+        clearTimeout(rowPrefetchTimer);
+        rowPrefetchTimer = setTimeout(() => {
+          const rows = Array.from(zipContent.querySelectorAll(".zip-folder-row"));
+          if (rows.length === 0) return;
+          const currentScrollY = zipContent.scrollTop;
+          const vh = zipContent.clientHeight || window.innerHeight;
+          const activeIdx = Math.max(0, Math.min(rows.length - 1, Math.round(currentScrollY / vh)));
+          if (activeIdx !== lastPrefetchedRowIdx) {
+            lastPrefetchedRowIdx = activeIdx;
+            const activeFolder = folderNames[activeIdx];
+            if (activeFolder) {
+              const files = folderMap.get(activeFolder);
+              if (files && files.length > 0) {
+                batchPrefetchMegaDlUrls(files.slice(0, 50), parsed.id, signal).catch(() => {});
+              }
+            }
+            const nextFolder = folderNames[activeIdx + 1];
+            if (nextFolder) {
+              const nextFiles = folderMap.get(nextFolder);
+              if (nextFiles && nextFiles.length > 0) {
+                batchPrefetchMegaDlUrls(nextFiles.slice(0, 25), parsed.id, signal).catch(() => {});
+              }
+            }
+          }
+        }, 120);
+      };
+
+      zipContent.addEventListener("scroll", onScrollPrefetch, { passive: true });
+    }
 
   } catch (err) {
     if (signal.aborted) return;
