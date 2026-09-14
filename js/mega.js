@@ -3,6 +3,7 @@ import { zipViewer, zipTitle, zipContent, zipIndicator, setZipNavVisible, render
 import { formatBytes, showMediaUnavailableWarning, renderArchiveProgress, renderMediaProgress } from "./utils.js";
 import { attachMedia, syncCarouselClones, getCurrentGalleryPost } from "./feed.js";
 import { createExternalAbortSignal, renderArchiveCardUI, escapeHtml, getMimeType, isImageOrVideo } from "./externalGalleries.js";
+import { attachCustomVideoPlayer } from "./player.js";
 
 export const megaFolderCache = new Map();
 export const megaBlobCache = new Map();
@@ -1115,12 +1116,16 @@ async function handleSingleMegaFile(parsed, title, signal) {
   if (["mp4", "webm"].includes(ext)) {
     const video = document.createElement("video");
     video.src = blobUrl;
-    video.controls = true;
     video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    video.loop = true;
+    video.muted = true;
     video.style.maxWidth = "100%";
     video.style.maxHeight = "100%";
     video.style.objectFit = "contain";
     container.appendChild(video);
+    attachCustomVideoPlayer(video, container);
   } else {
     const img = document.createElement("img");
     img.src = blobUrl;
@@ -1318,12 +1323,16 @@ async function loadAndDisplayMegaItem(container, file, folderId, cachedBlobs, si
         let vid = c.querySelector("video");
         if (!vid) {
           vid = document.createElement("video");
-          vid.controls = true;
           vid.playsInline = true;
+          vid.setAttribute("playsinline", "");
+          vid.setAttribute("webkit-playsinline", "");
+          vid.loop = true;
+          vid.muted = true;
           vid.style.maxWidth = "100%";
           vid.style.maxHeight = "100%";
           vid.style.objectFit = "contain";
           c.appendChild(vid);
+          attachCustomVideoPlayer(vid, c);
         }
         vid.src = blobUrl;
       } else {

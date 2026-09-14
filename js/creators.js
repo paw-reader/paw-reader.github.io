@@ -6,12 +6,126 @@ import { resetFeed, fetchPosts } from "./feed.js";
 export const creatorsList = document.getElementById("creators-list");
 export const creatorsLoading = document.getElementById("creators-loading");
 export const searchInput = document.getElementById("creator-search");
+export const searchClearBtn = document.getElementById("creator-search-clear");
+
+export function clearSearch() {
+  if (searchInput) {
+    searchInput.value = "";
+  }
+  if (searchClearBtn) {
+    searchClearBtn.style.display = "none";
+  }
+}
 export const sortSelect = document.getElementById("creator-sort");
 export const sortDirBtn = document.getElementById("creator-sort-dir");
 export const serviceFilterSelect = document.getElementById("creator-service-filter");
 export const contentFilterSelect = document.getElementById("creator-content-filter");
 export const genderFilterSelect = document.getElementById("creator-gender-filter");
 export const paginationContainer = document.getElementById("creator-pagination");
+export const paginationTopContainer = document.getElementById("creator-pagination-top");
+
+export const SITE_SERVICES = {
+  kemono: ["boosty", "dlsite", "fanbox", "fantia", "gumroad", "patreon", "subscribestar"],
+  pawchive: ["fanbox", "patreon"],
+  cum: ["fansly", "onlyfans", "patreon"],
+};
+
+export const SERVICE_LABELS = {
+  boosty: "Boosty",
+  dlsite: "DLsite",
+  fanbox: "Fanbox",
+  fantia: "Fantia",
+  gumroad: "Gumroad",
+  patreon: "Patreon",
+  subscribestar: "SubscribeStar",
+  onlyfans: "OnlyFans",
+  fansly: "Fansly",
+};
+
+let currentRenderedFilterSite = null;
+
+export function formatServiceName(service) {
+  return SERVICE_LABELS[service] || (service.charAt(0).toUpperCase() + service.slice(1));
+}
+
+export function renderServiceFilters(site = state.currentSite, force = false) {
+  if (!serviceFilterSelect) return;
+  if (!force && currentRenderedFilterSite === site && serviceFilterSelect.children.length > 0) {
+    return;
+  }
+
+  currentRenderedFilterSite = site;
+  const services = SITE_SERVICES[site] || [];
+  const checkedBoxes = Array.from(serviceFilterSelect.querySelectorAll("input:checked")).map((cb) => cb.value);
+  if (site === "cum" && checkedBoxes.length > 1) {
+    checkedBoxes.length = 1;
+  }
+
+  serviceFilterSelect.innerHTML = "";
+  services.forEach((service) => {
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = service;
+    if (checkedBoxes.includes(service)) {
+      cb.checked = true;
+    }
+
+    if (site === "cum") {
+      cb.addEventListener("click", () => {
+        if (cb.checked) {
+          serviceFilterSelect.querySelectorAll("input[type='checkbox']").forEach((other) => {
+            if (other !== cb) other.checked = false;
+          });
+        }
+      });
+    }
+
+    const text = document.createTextNode(" " + formatServiceName(service));
+    label.appendChild(cb);
+    label.appendChild(text);
+    serviceFilterSelect.appendChild(label);
+  });
+}
+
+export function syncDiscoveredServices(discoveredServices, site = state.currentSite) {
+  if (!serviceFilterSelect || currentRenderedFilterSite !== site) return;
+  const existingValues = new Set(
+    Array.from(serviceFilterSelect.querySelectorAll("input[type='checkbox']")).map((cb) => cb.value)
+  );
+
+  discoveredServices.forEach((service) => {
+    if (!service || service === "discord" || existingValues.has(service)) return;
+    existingValues.add(service);
+
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = service;
+
+    if (site === "cum") {
+      cb.addEventListener("click", () => {
+        if (cb.checked) {
+          serviceFilterSelect.querySelectorAll("input[type='checkbox']").forEach((other) => {
+            if (other !== cb) other.checked = false;
+          });
+        }
+      });
+    }
+
+    const text = document.createTextNode(" " + formatServiceName(service));
+    label.appendChild(cb);
+    label.appendChild(text);
+    serviceFilterSelect.appendChild(label);
+  });
+}
+
+export function getPaginationContainers() {
+  const containers = [];
+  if (paginationTopContainer) containers.push(paginationTopContainer);
+  if (paginationContainer) containers.push(paginationContainer);
+  return containers;
+}
 async function fetchWithRetry(url, options = {}, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
@@ -128,9 +242,9 @@ async function fetchAndRenderCoomerCreators() {
       }
     }
 
-    if (paginationContainer) {
-      paginationContainer.innerHTML = "";
-    }
+    getPaginationContainers().forEach((c) => {
+      c.innerHTML = "";
+    });
     const totalPages = Math.ceil(total / limit);
     renderPagination(totalPages);
   } catch (err) {
@@ -139,9 +253,9 @@ async function fetchAndRenderCoomerCreators() {
     if (creatorsList) {
       creatorsList.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: #ff6b6b; padding: 40px;">Failed to load creators. Please try again.</div>';
     }
-    if (paginationContainer) {
-      paginationContainer.innerHTML = "";
-    }
+    getPaginationContainers().forEach((c) => {
+      c.innerHTML = "";
+    });
   } finally {
     if (seq === coomerFetchSeq) {
       if (creatorsLoading) creatorsLoading.classList.remove("active");
@@ -151,33 +265,10 @@ async function fetchAndRenderCoomerCreators() {
 }
 
 export async function loadCreators() {
+  renderServiceFilters(state.currentSite);
+
   if (state.currentSite === "cum") {
     state.loadedCreatorsSite = "cum";
-    if (serviceFilterSelect) {
-      const services = ["fansly", "onlyfans", "patreon"];
-      const checkedBoxes = Array.from(serviceFilterSelect.querySelectorAll("input:checked")).map((cb) => cb.value);
-      serviceFilterSelect.innerHTML = "";
-      services.forEach((service) => {
-        const label = document.createElement("label");
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.value = service;
-        if (checkedBoxes.includes(service)) {
-          cb.checked = true;
-        }
-        cb.addEventListener("click", () => {
-          if (cb.checked) {
-            serviceFilterSelect.querySelectorAll("input[type='checkbox']").forEach((other) => {
-              if (other !== cb) other.checked = false;
-            });
-          }
-        });
-        const text = document.createTextNode(" " + service.charAt(0).toUpperCase() + service.slice(1));
-        label.appendChild(cb);
-        label.appendChild(text);
-        serviceFilterSelect.appendChild(label);
-      });
-    }
     await filterAndSortCreators();
     return;
   }
@@ -246,25 +337,7 @@ export async function loadCreators() {
         services.add(c.service);
         if (c.allPlatforms) c.allPlatforms.forEach((p) => services.add(p.service));
       });
-
-      const checkedBoxes = Array.from(serviceFilterSelect.querySelectorAll("input:checked")).map((cb) => cb.value);
-
-      serviceFilterSelect.innerHTML = "";
-      Array.from(services)
-        .sort()
-        .forEach((service) => {
-          const label = document.createElement("label");
-          const cb = document.createElement("input");
-          cb.type = "checkbox";
-          cb.value = service;
-          if (checkedBoxes.includes(service)) {
-            cb.checked = true;
-          }
-          const text = document.createTextNode(" " + service.charAt(0).toUpperCase() + service.slice(1));
-          label.appendChild(cb);
-          label.appendChild(text);
-          serviceFilterSelect.appendChild(label);
-        });
+      syncDiscoveredServices(Array.from(services).sort(), state.currentSite);
     }
 
     filterAndSortCreators();
@@ -369,11 +442,20 @@ export function buildCreatorCard(creator, checkedServices = []) {
   const img = document.createElement("img");
   img.className = "creator-image";
   if (state.currentSite === "cum") {
-    img.src = `${PROXY_URL}/cum/creator-avatar/${initialPlatform.service}/${initialPlatform.id}/avatar.webp`;
+    if (initialPlatform.avatarThumbhash === null || initialPlatform.avatarThumbhash === false) {
+      img.style.display = "none";
+    } else {
+      img.src = `${PROXY_URL}/cum/creator-avatar/${initialPlatform.service}/${initialPlatform.id}/avatar.webp`;
+    }
   } else {
     img.src = `${PROXY_URL}/${state.currentSite}/icons/${initialPlatform.service}/${initialPlatform.id}`;
   }
   img.loading = "lazy";
+  img.onload = () => {
+    if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
+      img.style.display = "none";
+    }
+  };
   img.onerror = () => {
     img.style.display = "none";
   };
@@ -423,11 +505,16 @@ export function buildCreatorCard(creator, checkedServices = []) {
       currentPlatformIndex = (currentPlatformIndex + 1) % creator.allPlatforms.length;
       const newPlatform = creator.allPlatforms[currentPlatformIndex];
       if (state.currentSite === "cum") {
-        img.src = `${PROXY_URL}/cum/creator-avatar/${newPlatform.service}/${newPlatform.id}/avatar.webp`;
+        if (newPlatform.avatarThumbhash === null || newPlatform.avatarThumbhash === false) {
+          img.style.display = "none";
+        } else {
+          img.src = `${PROXY_URL}/cum/creator-avatar/${newPlatform.service}/${newPlatform.id}/avatar.webp`;
+          img.style.display = "block";
+        }
       } else {
         img.src = `${PROXY_URL}/${state.currentSite}/icons/${newPlatform.service}/${newPlatform.id}`;
+        img.style.display = "block";
       }
-      img.style.display = "block";
       name.textContent = newPlatform.name;
       service.textContent = newPlatform.service;
       favorites.textContent = `⭐ ${getFavCount(newPlatform).toLocaleString()}`;
@@ -451,9 +538,12 @@ export function buildCreatorCard(creator, checkedServices = []) {
 }
 
 export function renderCreatorsPage() {
-  if (!creatorsList || !paginationContainer) return;
+  const containers = getPaginationContainers();
+  if (!creatorsList) return;
   creatorsList.innerHTML = "";
-  paginationContainer.innerHTML = "";
+  containers.forEach((c) => {
+    c.innerHTML = "";
+  });
 
   const totalPages = Math.ceil(state.filteredCreators.length / state.creatorsPerPage);
   if (state.creatorPage > totalPages) state.creatorPage = totalPages;
@@ -475,7 +565,11 @@ export function renderCreatorsPage() {
 }
 
 export function renderPagination(totalPages) {
-  if (totalPages <= 1 || !paginationContainer) return;
+  const containers = getPaginationContainers();
+  containers.forEach((c) => {
+    c.innerHTML = "";
+  });
+  if (totalPages <= 1 || containers.length === 0) return;
 
   const maxButtons = 7;
   let startPage = Math.max(1, state.creatorPage - Math.floor(maxButtons / 2));
@@ -486,29 +580,31 @@ export function renderPagination(totalPages) {
     startPage = Math.max(1, endPage - maxButtons + 1);
   }
 
-  if (startPage > 1) {
-    paginationContainer.appendChild(createPageBtn(1));
-    if (startPage > 2) {
-      const dots = document.createElement("span");
-      dots.textContent = "...";
-      dots.style.padding = "5px";
-      paginationContainer.appendChild(dots);
+  containers.forEach((container) => {
+    if (startPage > 1) {
+      container.appendChild(createPageBtn(1));
+      if (startPage > 2) {
+        const dots = document.createElement("span");
+        dots.textContent = "...";
+        dots.style.padding = "5px";
+        container.appendChild(dots);
+      }
     }
-  }
 
-  for (let i = startPage; i <= endPage; i++) {
-    paginationContainer.appendChild(createPageBtn(i));
-  }
-
-  if (endPage < totalPages) {
-    if (endPage < totalPages - 1) {
-      const dots = document.createElement("span");
-      dots.textContent = "...";
-      dots.style.padding = "5px";
-      paginationContainer.appendChild(dots);
+    for (let i = startPage; i <= endPage; i++) {
+      container.appendChild(createPageBtn(i));
     }
-    paginationContainer.appendChild(createPageBtn(totalPages));
-  }
+
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        const dots = document.createElement("span");
+        dots.textContent = "...";
+        dots.style.padding = "5px";
+        container.appendChild(dots);
+      }
+      container.appendChild(createPageBtn(totalPages));
+    }
+  });
 }
 
 export function createPageBtn(pageNum) {

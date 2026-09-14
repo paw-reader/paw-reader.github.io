@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="color-scheme" content="dark">
   <title>paw-reader</title>
-  <link rel="stylesheet" href="style.css?v=2.4">
+  <link rel="stylesheet" href="style.css?v=2.15">
   <link rel="icon" type="image/svg+xml" href="icons/patreon.svg">
 </head>
 <body>
@@ -109,8 +109,8 @@
       <label for="site-selector" style="color:#ccc; font-size:1.1rem; margin-right:10px;">Select Source:</label>
       <select id="site-selector" style="padding: 8px 12px; font-size: 1.1rem; border-radius: 8px; background: #121212; color: white; border: 1px solid #333; cursor: pointer; outline: none;">
         <option value="pawchive">Pawchive</option>
-        <option value="kemono">Kemono (kemono.cr)</option>
-        <option value="cum">Coomer (cum.st)</option>
+        <option value="kemono">Kemono</option>
+        <option value="cum">Coomer</option>
       </select>
     </div>
     <div class="welcome-buttons">
@@ -131,7 +131,15 @@
   <div id="creators-view" class="view">
     <h2 id="creators-title">Creators</h2>
     <div class="creators-controls">
-      <input type="text" id="creator-search" placeholder="Search creators...">
+      <div class="creator-search-wrap">
+        <input type="text" id="creator-search" placeholder="Search creators..." autocomplete="off">
+        <button type="button" id="creator-search-clear" class="creator-search-clear" title="Clear search" aria-label="Clear search" style="display: none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
       <div id="creator-service-filter" class="checkbox-container">
         <!-- populated dynamically -->
       </div>
@@ -160,6 +168,7 @@
       </select>
       <button id="creator-sort-dir" title="Toggle sort direction" style="display: flex; align-items: center; justify-content: center;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></button>
     </div>
+    <div id="creator-pagination-top" class="pagination pagination-top"></div>
     <div id="creators-loading" class="loading active">Loading creators...</div>
     <div id="creators-list" class="creators-grid"></div>
     <div id="creator-pagination" class="pagination"></div>

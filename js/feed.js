@@ -13,6 +13,8 @@ import {
 import { updateNavTabs, updateNavVisibility, closeAllPostInfo, wrapCarousel } from "./nav.js";
 import { openZipGallery } from "./zip.js";
 import { detectExternalGalleries, renderExternalFileCard, isDropboxFolderUrl, escapeHtml } from "./externalGalleries.js";
+import { attachCustomVideoPlayer } from "./player.js";
+import { loadGifPlayer } from "./gifPlayer.js";
 
 export const feed = document.getElementById("feed");
 export const feedLoading = document.getElementById("feed-loading");
@@ -21,14 +23,15 @@ export const playbackObserver = new IntersectionObserver(
   (entries) => {
     entries.forEach((entry) => {
       const el = entry.target;
-      if (el.tagName.toLowerCase() === "video" || el.tagName.toLowerCase() === "audio") {
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-          const playPromise = el.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(() => {});
-          }
-        } else if (!entry.isIntersecting || entry.intersectionRatio < 0.25) {
+      const tag = el.tagName ? el.tagName.toLowerCase() : "";
+      const isGif = el.dataset?.isGif === "true";
+      if (tag === "video" || tag === "audio" || isGif) {
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.25) {
           el.pause();
+        } else if (isGif && entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+          if (!el._userPaused && el.paused) {
+            el.play().catch(() => {});
+          }
         }
       }
     });
@@ -105,6 +108,7 @@ export function syncCarouselClones(item) {
 
   const img = item.querySelector("img.post-media");
   const video = item.querySelector("video.post-media, audio.post-media");
+  const gifCanvas = item.querySelector("canvas.post-media[data-is-gif]");
   const archiveCard = item.querySelector(".ext-archive-card");
 
   if (img) {
@@ -112,9 +116,10 @@ export function syncCarouselClones(item) {
     targetClone.appendChild(cloneImg);
     if (cloneProgress) cloneProgress.style.display = "none";
     targetClone.dataset.loaded = "true";
-  } else if (video) {
+  } else if (video || gifCanvas) {
     const path = item.dataset.path;
-    if (path && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+    const isImagePath = path && /\.(jpe?g|png|webp|gif|avif)$/i.test(path);
+    if (isImagePath && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
       const cloneImg = document.createElement("img");
       cloneImg.className = "post-media";
       cloneImg.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${path}`;
@@ -122,6 +127,8 @@ export function syncCarouselClones(item) {
     } else {
       const placeholder = document.createElement("div");
       placeholder.className = "post-media";
+      placeholder.style.cssText = "display: flex; align-items: center; justify-content: center; background: #000;";
+      placeholder.innerHTML = '<svg viewBox="0 0 24 24" width="48" height="48" fill="rgba(255,255,255,0.35)"><path d="M8 5v14l11-7z"/></svg>';
       targetClone.appendChild(placeholder);
     }
     if (cloneProgress) cloneProgress.style.display = "none";
@@ -174,6 +181,12 @@ export const mediaObserver = new IntersectionObserver(
 
         const carousel = item.closest(".media-carousel");
         if (carousel) {
+          const count = parseInt(carousel.dataset.mediaCount || "0", 10);
+          if (count > 1 && carousel.scrollLeft === 0) {
+            const { firstOffset } = getCarouselMetrics(carousel);
+            carousel.scrollLeft = firstOffset;
+            carousel._restingScrollLeft = firstOffset;
+          }
           preloadUpcomingMedia(carousel);
         }
       }
@@ -189,10 +202,10 @@ export function preloadUpcomingMedia(carousel) {
   const count = parseInt(carousel.dataset.mediaCount || "0", 10);
   if (count <= 1) return;
 
-  const itemWidth = carousel.clientWidth || window.innerWidth;
-  if (!itemWidth) return;
+  const { firstOffset, step } = getCarouselMetrics(carousel);
+  if (!step) return;
 
-  const rawIndex = Math.round(carousel.scrollLeft / itemWidth);
+  const rawIndex = Math.round((carousel.scrollLeft - firstOffset) / step) + 1;
 
   for (let i = 1; i <= preloadCount; i++) {
     let targetIndex = rawIndex + i;
@@ -258,20 +271,30 @@ export function detachMedia(item, force = false) {
     item._resetDownload = null;
   }
 
+  if (item._cleanupGif) {
+    try {
+      item._cleanupGif();
+    } catch (_) {}
+    item._cleanupGif = null;
+  }
+
   if (item._blobUrl) {
     URL.revokeObjectURL(item._blobUrl);
     item._blobUrl = null;
   }
 
-  const mediaEls = item.querySelectorAll("video, audio, img.post-media, .ext-archive-card");
+  const mediaEls = item.querySelectorAll("video, audio, img.post-media, canvas.post-media, .ext-archive-card, .video-player-wrapper");
   mediaEls.forEach((el) => {
-    if (el.tagName && (el.tagName.toLowerCase() === "video" || el.tagName.toLowerCase() === "audio")) {
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    if (tag === "video" || tag === "audio" || el.dataset?.isGif === "true") {
       playbackObserver.unobserve(el);
-      el.pause();
-      el.removeAttribute("src");
-      while (el.firstChild) el.removeChild(el.firstChild);
-      el.load();
-    } else if (el.tagName && el.tagName.toLowerCase() === "img") {
+      if (typeof el.pause === "function") el.pause();
+      if (tag !== "canvas") {
+        el.removeAttribute("src");
+        while (el.firstChild) el.removeChild(el.firstChild);
+        el.load();
+      }
+    } else if (tag === "img") {
       el.src = "";
     }
     el.remove();
@@ -305,7 +328,9 @@ export function recycleOffscreenCards() {
       const items = card.querySelectorAll(".media-item");
       items.forEach((item) => detachMedia(item));
     } else if (isOutOfVideoWindow) {
-      const videoEls = card.querySelectorAll('.media-item[data-type="video"], .media-item[data-type="audio"], .media-item video, .media-item audio');
+      const videoEls = card.querySelectorAll(
+        '.media-item[data-type="video"], .media-item[data-type="audio"], .media-item[data-type="gif"], .media-item video, .media-item audio, .media-item canvas[data-is-gif]'
+      );
       videoEls.forEach((el) => {
         const item = el.classList.contains("media-item") ? el : el.closest(".media-item");
         if (item) detachMedia(item);
@@ -724,6 +749,19 @@ export async function loadMediaWithProgress(item) {
     return;
   }
 
+  if (type === "gif") {
+    loadGifPlayer({
+      item,
+      url,
+      filename,
+      progressOverlay,
+      onRetry: triggerRetry,
+      syncCarouselClones,
+      playbackObserver,
+    });
+    return;
+  }
+
   if (type === "video" || type === "audio") {
     if (item.dataset.isClone === "true") {
       if (progressOverlay) progressOverlay.style.display = "none";
@@ -762,9 +800,11 @@ export async function loadMediaWithProgress(item) {
       video.setAttribute("playsinline", "");
       video.setAttribute("webkit-playsinline", "");
       video.disableRemotePlayback = true;
-      video.preload = "auto";
+      video.preload = "metadata";
+      video.controls = false;
+    } else {
+      video.controls = true;
     }
-    video.controls = true;
 
     const hideOverlay = () => {
       if (progressOverlay) progressOverlay.style.display = "none";
@@ -807,41 +847,45 @@ export async function loadMediaWithProgress(item) {
       }
     });
 
-    let videoTimeout = setTimeout(() => {
-      const p = item.dataset.path;
-      if (video.readyState < 2 && p && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
-        video.style.display = "none";
-        const thumbImg = document.createElement("img");
-        thumbImg.className = "post-media";
-        thumbImg.loading = "eager";
-        thumbImg.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${p}`;
+    let videoTimeout = null;
+    const p = item.dataset.path;
+    const isImagePath = p && /\.(jpe?g|png|webp|gif|avif)$/i.test(p);
+    if (isImagePath && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+      videoTimeout = setTimeout(() => {
+        if (video.readyState < 2) {
+          video.style.display = "none";
+          const thumbImg = document.createElement("img");
+          thumbImg.className = "post-media";
+          thumbImg.loading = "eager";
+          thumbImg.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${p}`;
 
-        thumbImg.onload = () => {
-          if (progressOverlay) progressOverlay.style.display = "none";
-          syncCarouselClones(item);
-        };
-        thumbImg.onerror = () => {
-          if (progressOverlay) progressOverlay.style.display = "flex";
-          showMediaUnavailableWarning(progressOverlay, { type, filename, errorStatus: "404", onRetry: triggerRetry });
-        };
+          thumbImg.onload = () => {
+            if (progressOverlay) progressOverlay.style.display = "none";
+            syncCarouselClones(item);
+          };
+          thumbImg.onerror = () => {
+            if (progressOverlay) progressOverlay.style.display = "flex";
+            showMediaUnavailableWarning(progressOverlay, { type, filename, errorStatus: "404", onRetry: triggerRetry });
+          };
 
-        item.appendChild(thumbImg);
-      }
-    }, 6000);
+          item.appendChild(thumbImg);
+        }
+      }, 12000);
+    }
 
     video.addEventListener("loadedmetadata", () => {
-      clearTimeout(videoTimeout);
+      if (videoTimeout) clearTimeout(videoTimeout);
       updateVideoProgress("Buffering...");
     });
 
     video.addEventListener("canplay", () => {
-      clearTimeout(videoTimeout);
+      if (videoTimeout) clearTimeout(videoTimeout);
       hideOverlay();
       syncCarouselClones(item);
     });
 
     video.addEventListener("error", () => {
-      clearTimeout(videoTimeout);
+      if (videoTimeout) clearTimeout(videoTimeout);
       video.style.display = "none";
       const path = item.dataset.path;
 
@@ -874,6 +918,9 @@ export async function loadMediaWithProgress(item) {
     video.src = url;
 
     item.appendChild(video);
+    if (type === "video") {
+      attachCustomVideoPlayer(video, item);
+    }
     playbackObserver.observe(video);
     return;
   }
@@ -980,14 +1027,20 @@ export function attachMedia(item, blob, type) {
     const video = document.createElement(type === "video" ? "video" : "audio");
     video.className = "post-media";
     video.src = objUrl;
-    video.loop = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.setAttribute("playsinline", "");
-    video.setAttribute("webkit-playsinline", "");
-    video.setAttribute("muted", "");
-    video.controls = true;
-    item.appendChild(video);
+    if (type === "video") {
+      video.loop = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      video.setAttribute("webkit-playsinline", "");
+      video.setAttribute("muted", "");
+      video.controls = false;
+      item.appendChild(video);
+      attachCustomVideoPlayer(video, item);
+    } else {
+      video.controls = true;
+      item.appendChild(video);
+    }
     playbackObserver.observe(video);
   } else {
     const img = document.createElement("img");
@@ -1049,22 +1102,63 @@ export function smoothScroll(element, targetLeft, duration = 140, onComplete = n
   element._animId = requestAnimationFrame(step);
 }
 
+export function getCarouselMetrics(container) {
+  if (!container || !container.children) {
+    const w = (container && container.clientWidth) || window.innerWidth || 1;
+    return { firstOffset: 0, step: w, itemWidth: w };
+  }
+  const children = container.children;
+  if (children.length <= 1) {
+    const w = container.clientWidth || window.innerWidth || 1;
+    return { firstOffset: 0, step: w, itemWidth: w };
+  }
+  const firstItem = children[1] || children[0];
+  const firstOffset = firstItem.offsetLeft || 0;
+  const itemWidth = firstItem.offsetWidth || container.clientWidth || window.innerWidth || 1;
+  const secondItem = children[2];
+  const step = (secondItem ? secondItem.offsetLeft - firstOffset : itemWidth) || itemWidth;
+  return { firstOffset, step, itemWidth };
+}
+
 export function handleCarouselScrollSettled(container, count) {
-  if (!container || count <= 1 || container._animId) return;
-  const itemWidth = container.clientWidth || window.innerWidth;
-  if (!itemWidth) return;
-  const curIdx = Math.round(container.scrollLeft / itemWidth);
+  if (!container || count <= 1 || container._animId || container._isTouching) return;
+  const { firstOffset, step } = getCarouselMetrics(container);
+  if (!step) return;
+
+  const curIdx = Math.round((container.scrollLeft - firstOffset) / step) + 1;
   if (curIdx <= 0) {
     container.style.scrollSnapType = "none";
-    container.scrollLeft = count * itemWidth;
+    const target = container.children[count] ? container.children[count].offsetLeft : firstOffset + (count - 1) * step;
+    container.scrollLeft = target;
+    container._restingScrollLeft = target;
     requestAnimationFrame(() => {
       container.style.scrollSnapType = "";
     });
   } else if (curIdx >= count + 1) {
     container.style.scrollSnapType = "none";
-    container.scrollLeft = 1 * itemWidth;
+    const target = container.children[1] ? container.children[1].offsetLeft : firstOffset;
+    container.scrollLeft = target;
+    container._restingScrollLeft = target;
     requestAnimationFrame(() => {
       container.style.scrollSnapType = "";
+    });
+  } else {
+    container._restingScrollLeft = container.scrollLeft;
+  }
+
+  // Autoplay active slide's GIF, pause other slides' GIFs
+  const finalIdx = curIdx <= 0 ? count : (curIdx >= count + 1 ? 1 : curIdx);
+  const activeChild = container.children[finalIdx];
+  if (activeChild) {
+    Array.from(container.children).forEach((child) => {
+      const gif = child.querySelector("canvas[data-is-gif]");
+      if (gif) {
+        if (child === activeChild) {
+          if (!gif._userPaused && gif.paused) gif.play().catch(() => {});
+        } else {
+          gif.pause();
+        }
+      }
     });
   }
 }
@@ -1074,14 +1168,20 @@ export function navigateCarousel(carousel, direction, totalCount, isKey = false)
     ? parseInt(carousel.dataset.mediaCount, 10)
     : totalCount || (carousel.children.length > 2 ? carousel.children.length - 2 : carousel.children.length);
   if (!carousel || count <= 1) return;
-  const itemWidth = carousel.clientWidth || window.innerWidth;
-  if (!itemWidth) return;
 
   const now = performance.now();
   if (!isKey && carousel._lastNavTime && now - carousel._lastNavTime < 60) {
     return;
   }
   carousel._lastNavTime = now;
+
+  const { firstOffset, step } = getCarouselMetrics(carousel);
+  if (!step) return;
+
+  const getChildOffset = (idx) => {
+    if (carousel.children[idx]) return carousel.children[idx].offsetLeft;
+    return firstOffset + (idx - 1) * step;
+  };
 
   let baseIndex;
   if (carousel._targetIndex !== undefined) {
@@ -1091,19 +1191,19 @@ export function navigateCarousel(carousel, direction, totalCount, isKey = false)
       carousel._animId = null;
     }
     if (baseIndex <= 0) {
-      carousel.scrollLeft = count * itemWidth;
+      carousel.scrollLeft = getChildOffset(count);
       baseIndex = count;
     } else if (baseIndex >= count + 1) {
-      carousel.scrollLeft = 1 * itemWidth;
+      carousel.scrollLeft = getChildOffset(1);
       baseIndex = 1;
     }
   } else {
-    baseIndex = Math.round(carousel.scrollLeft / itemWidth);
+    baseIndex = Math.round((carousel.scrollLeft - firstOffset) / step) + 1;
     if (baseIndex <= 0) {
-      carousel.scrollLeft = count * itemWidth;
+      carousel.scrollLeft = getChildOffset(count);
       baseIndex = count;
     } else if (baseIndex >= count + 1) {
-      carousel.scrollLeft = 1 * itemWidth;
+      carousel.scrollLeft = getChildOffset(1);
       baseIndex = 1;
     }
   }
@@ -1118,17 +1218,18 @@ export function navigateCarousel(carousel, direction, totalCount, isKey = false)
   }
 
   carousel._targetIndex = nextIndex;
-  const targetX = nextIndex * itemWidth;
+  const targetX = getChildOffset(nextIndex);
 
   smoothScroll(carousel, targetX, window.pawAnimationsDisabled ? 0 : 140, () => {
     carousel._targetIndex = undefined;
     if (nextIndex <= 0) {
-      carousel.scrollLeft = count * itemWidth;
+      carousel.scrollLeft = getChildOffset(count);
     } else if (nextIndex >= count + 1) {
-      carousel.scrollLeft = 1 * itemWidth;
+      carousel.scrollLeft = getChildOffset(1);
     } else {
       carousel.scrollLeft = targetX;
     }
+    carousel._restingScrollLeft = carousel.scrollLeft;
   });
 }
 
@@ -1478,10 +1579,11 @@ export function createPostCard(post) {
         const ext = mediaPath.split(".").pop().toLowerCase();
         const isVideo = ["mp4", "webm", "mov"].includes(ext);
         const isAudio = ["mp3", "ogg", "wav", "m4a"].includes(ext);
+        const isGif = ext === "gif";
         item.dataset.url = getMediaUrl(mediaPath);
         item.dataset.path = mediaPath;
         item.dataset.isUnimported = mediaObj.isUnimported ? "true" : "false";
-        item.dataset.type = ext === "zip" ? "zip" : isVideo ? "video" : isAudio ? "audio" : "image";
+        item.dataset.type = ext === "zip" ? "zip" : isVideo ? "video" : isAudio ? "audio" : isGif ? "gif" : "image";
       }
 
       const progressOverlay = document.createElement("div");
@@ -1528,36 +1630,63 @@ export function createPostCard(post) {
 
     indicator.addEventListener("click", (e) => {
       e.stopPropagation();
-      const itemWidth = carousel.clientWidth || window.innerWidth;
-      const target = allMedia.length > 1 ? 1 * itemWidth : 0;
+      const target = allMedia.length > 1
+        ? (carousel.children[1] ? carousel.children[1].offsetLeft : (carousel.clientWidth || window.innerWidth))
+        : 0;
       smoothScroll(carousel, target, window.pawAnimationsDisabled ? 0 : 140);
     });
 
     requestAnimationFrame(() => {
-      const itemWidth = carousel.clientWidth || window.innerWidth;
-      if (allMedia.length > 1 && itemWidth) {
-        carousel.scrollLeft = 1 * itemWidth;
+      if (allMedia.length > 1) {
+        carousel.scrollLeft = carousel.children[1] ? carousel.children[1].offsetLeft : (carousel.clientWidth || window.innerWidth);
       } else {
         carousel.scrollLeft = 0;
       }
+      carousel._restingScrollLeft = carousel.scrollLeft;
     });
     card.appendChild(indicator);
 
     let scrollSettleTimer;
+    carousel.addEventListener("touchstart", () => {
+      carousel._isTouching = true;
+      carousel._restingScrollLeft = carousel.scrollLeft;
+      clearTimeout(scrollSettleTimer);
+    }, { passive: true });
+
+    carousel.addEventListener("touchend", () => {
+      carousel._isTouching = false;
+      if (allMedia.length > 1 && !carousel._animId) {
+        clearTimeout(scrollSettleTimer);
+        scrollSettleTimer = setTimeout(() => {
+          handleCarouselScrollSettled(carousel, allMedia.length);
+          carousel._restingScrollLeft = carousel.scrollLeft;
+        }, 150);
+      }
+    }, { passive: true });
+
+    carousel.addEventListener("touchcancel", () => {
+      carousel._isTouching = false;
+    }, { passive: true });
+
     carousel.addEventListener("scroll", () => {
-      const itemWidth = carousel.clientWidth || window.innerWidth;
-      if (!itemWidth) return;
+      if (carousel._isVerticalScrolling && carousel._restingScrollLeft !== undefined) {
+        carousel.scrollLeft = carousel._restingScrollLeft;
+        return;
+      }
       const count = allMedia.length;
       if (count > 1) {
-        const rawIndex = Math.round(carousel.scrollLeft / itemWidth);
-        const realIndex = (rawIndex - 1 + count) % count;
+        const { firstOffset, step } = getCarouselMetrics(carousel);
+        if (!step) return;
+        const rawIndex = Math.round((carousel.scrollLeft - firstOffset) / step) + 1;
+        const realIndex = ((rawIndex - 1) % count + count) % count;
         indicator.textContent = `${realIndex + 1} / ${count}`;
 
-        if (!carousel._animId) {
+        if (!carousel._animId && !carousel._isTouching) {
           clearTimeout(scrollSettleTimer);
           scrollSettleTimer = setTimeout(() => {
             handleCarouselScrollSettled(carousel, count);
-          }, 60);
+            carousel._restingScrollLeft = carousel.scrollLeft;
+          }, 150);
         }
       } else {
         indicator.textContent = "1 / 1";
@@ -1565,8 +1694,9 @@ export function createPostCard(post) {
     });
 
     carousel.addEventListener("scrollend", () => {
-      if (!carousel._animId) {
+      if (!carousel._animId && !carousel._isTouching) {
         handleCarouselScrollSettled(carousel, allMedia.length);
+        carousel._restingScrollLeft = carousel.scrollLeft;
       }
     });
 
@@ -1580,63 +1710,106 @@ export function createPostCard(post) {
     card.appendChild(info);
   }
 
+  let cardTouchStartX = 0;
+  let cardTouchStartY = 0;
+
+  card.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) {
+      cardTouchStartX = e.touches[0].clientX;
+      cardTouchStartY = e.touches[0].clientY;
+      card.dataset.isDragging = "false";
+    }
+  }, { passive: true });
+
+  card.addEventListener("touchmove", (e) => {
+    if (e.touches.length === 1) {
+      const dx = e.touches[0].clientX - cardTouchStartX;
+      const dy = e.touches[0].clientY - cardTouchStartY;
+      if (Math.hypot(dx, dy) > 18) {
+        card.dataset.isDragging = "true";
+      }
+    }
+  }, { passive: true });
+
   card.addEventListener("click", (e) => {
     if (e.target.tagName.toLowerCase() === "a" || e.target.closest("a")) return;
     if (e.target.tagName.toLowerCase() === "button" || e.target.closest("button")) return;
-    if (e.target.tagName.toLowerCase() === "video" || e.target.tagName.toLowerCase() === "audio") return;
     if (e.target.closest(".zip-info-text")) return;
+    if (e.target.closest(".custom-player-overlay")) return;
 
     if (card.dataset.isDragging === "true") {
       card.dataset.isDragging = "false";
       return;
     }
 
-    const infoEl = card.querySelector(".post-info");
-    if (!infoEl || !infoEl.classList.contains("expanded") || !e.target.closest(".post-info")) {
-      const x = e.clientX;
-      const y = e.clientY;
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-
-      if (y < h * 0.15) {
-        let target =
-          feed.dataset.targetScroll !== undefined
-            ? parseFloat(feed.dataset.targetScroll)
-            : Math.round(feed.scrollTop / h) * h;
-        target = Math.max(0, target - h);
-        feed.dataset.targetScroll = target;
-        feed.dataset.scrollDir = "up";
-        feed.style.scrollSnapType = "none";
-        feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? "auto" : "smooth" });
-        return;
-      }
-      if (y > h * 0.85) {
-        let target =
-          feed.dataset.targetScroll !== undefined
-            ? parseFloat(feed.dataset.targetScroll)
-            : Math.round(feed.scrollTop / h) * h;
-        target = Math.min(target + h, feed.scrollHeight - feed.clientHeight);
-        feed.dataset.targetScroll = target;
-        feed.dataset.scrollDir = "down";
-        feed.style.scrollSnapType = "none";
-        feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? "auto" : "smooth" });
-        return;
-      }
-      const carousel = card.querySelector(".media-carousel");
-      if (carousel && allMedia.length > 1) {
-        if (x < w * 0.2) {
-          navigateCarousel(carousel, "left", allMedia.length);
-          return;
-        }
-        if (x > w * 0.8) {
-          navigateCarousel(carousel, "right", allMedia.length);
-          return;
-        }
-      }
-
-      state.navManualVisible = !document.getElementById("nav").classList.contains("visible");
-      updateNavVisibility();
+    const isVideo = e.target.tagName.toLowerCase() === "video";
+    const isAudio = e.target.tagName.toLowerCase() === "audio";
+    if (isAudio) return;
+    if (isVideo && e.target.closest(".media-item")?.querySelector(".custom-player-overlay")) {
+      return;
     }
+
+    const navEl = document.getElementById("nav");
+    const isNavCurrentlyVisible = navEl && navEl.classList.contains("visible");
+
+    // If nav buttons are currently visible, tapping anywhere on the post hides them!
+    if (isNavCurrentlyVisible) {
+      state.navManualVisible = false;
+      window.lastMouseY = -1;
+      updateNavVisibility();
+      return;
+    }
+
+    const infoEl = card.querySelector(".post-info");
+    if (infoEl && infoEl.classList.contains("expanded") && e.target.closest(".post-info")) {
+      return;
+    }
+
+    const x = e.clientX;
+    const y = e.clientY;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    // Edge tap navigation (only when nav buttons are hidden):
+    if (y < h * 0.15) {
+      let target =
+        feed.dataset.targetScroll !== undefined
+          ? parseFloat(feed.dataset.targetScroll)
+          : Math.round(feed.scrollTop / h) * h;
+      target = Math.max(0, target - h);
+      feed.dataset.targetScroll = target;
+      feed.dataset.scrollDir = "up";
+      feed.style.scrollSnapType = "none";
+      feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? "auto" : "smooth" });
+      return;
+    }
+    if (y > h * 0.85) {
+      let target =
+        feed.dataset.targetScroll !== undefined
+          ? parseFloat(feed.dataset.targetScroll)
+          : Math.round(feed.scrollTop / h) * h;
+      target = Math.min(target + h, feed.scrollHeight - feed.clientHeight);
+      feed.dataset.targetScroll = target;
+      feed.dataset.scrollDir = "down";
+      feed.style.scrollSnapType = "none";
+      feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? "auto" : "smooth" });
+      return;
+    }
+    const carousel = card.querySelector(".media-carousel");
+    if (carousel && allMedia.length > 1) {
+      if (x < w * 0.2) {
+        navigateCarousel(carousel, "left", allMedia.length);
+        return;
+      }
+      if (x > w * 0.8) {
+        navigateCarousel(carousel, "right", allMedia.length);
+        return;
+      }
+    }
+
+    state.navManualVisible = true;
+    window.lastMouseY = -1;
+    updateNavVisibility();
   });
 
   return card;

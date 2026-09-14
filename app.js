@@ -17,16 +17,22 @@ import {
   showView
 } from './js/nav.js';
 import {
+  creatorsList,
   searchInput,
+  searchClearBtn,
+  clearSearch,
   sortSelect,
   sortDirBtn,
   serviceFilterSelect,
   contentFilterSelect,
   genderFilterSelect,
+  paginationContainer,
+  paginationTopContainer,
   loadCreators,
-  filterAndSortCreators
+  filterAndSortCreators,
+  renderServiceFilters
 } from './js/creators.js';
-import { resetFeed, fetchPosts, navigateCarousel, handleCarouselScrollSettled, smoothScroll } from './js/feed.js';
+import { resetFeed, fetchPosts, navigateCarousel, handleCarouselScrollSettled, smoothScroll, getCarouselMetrics } from './js/feed.js';
 import {
   zipViewer,
   zipContent,
@@ -189,14 +195,40 @@ if (navSettings && settingsMenu) {
   });
 }
 
+export function resetHomeState() {
+  state.creatorPage = 1;
+  clearSearch();
+  if (creatorsList) creatorsList.innerHTML = '';
+  if (paginationTopContainer) paginationTopContainer.innerHTML = '';
+  if (paginationContainer) paginationContainer.innerHTML = '';
+  if (sortSelect) sortSelect.value = 'popularity';
+  if (contentFilterSelect) contentFilterSelect.value = state.currentSite === 'cum' ? 'content' : 'all';
+  if (genderFilterSelect) genderFilterSelect.value = 'all';
+  if (serviceFilterSelect) {
+    const checkboxes = serviceFilterSelect.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach((cb) => (cb.checked = false));
+  }
+}
+
 if (siteSelector) {
   state.currentSite = siteSelector.value;
+  resetHomeState();
   updateSiteSpecificUI();
+  renderServiceFilters(state.currentSite);
   siteSelector.addEventListener('change', (e) => { 
     state.currentSite = e.target.value; 
+    resetHomeState();
     updateSiteSpecificUI();
+    renderServiceFilters(state.currentSite);
   });
+} else {
+  resetHomeState();
+  renderServiceFilters(state.currentSite);
 }
+
+window.addEventListener('pageshow', () => {
+  resetHomeState();
+});
 
 const navTabsEl = document.getElementById('nav-tabs');
 if (navTabsEl) {
@@ -212,7 +244,8 @@ if (navTabsEl) {
 }
 
 if (navHome) {
-  navHome.addEventListener('click', () => {
+  navHome.addEventListener('click', (e) => {
+    e.stopPropagation();
     if (!isNavInteractive()) return;
     state.navManualVisible = false;
     state.currentFeedCreatorName = null;
@@ -221,21 +254,13 @@ if (navHome) {
     if (navBack) navBack.classList.add('hidden');
     
     resetFeed();
-    
-    state.creatorPage = 1;
-    if (searchInput) searchInput.value = '';
-    if (sortSelect) sortSelect.value = 'popularity';
-    if (contentFilterSelect) contentFilterSelect.value = state.currentSite === 'cum' ? 'content' : 'all';
-    if (genderFilterSelect) genderFilterSelect.value = 'all';
-    if (serviceFilterSelect) {
-      const checkboxes = serviceFilterSelect.querySelectorAll('input[type="checkbox"]');
-      checkboxes.forEach(cb => cb.checked = false);
-    }
+    resetHomeState();
   });
 }
 
 if (navBack) {
-  navBack.addEventListener('click', () => {
+  navBack.addEventListener('click', (e) => {
+    e.stopPropagation();
     if (!isNavInteractive()) return;
     
     if (feedView && feedView.classList.contains('active')) {
@@ -250,11 +275,13 @@ if (navBack) {
       } else {
         showView(welcomeScreen, false);
         navBack.classList.add('hidden');
+        resetHomeState();
       }
     } 
     else if (creatorsView && creatorsView.classList.contains('active')) {
       showView(welcomeScreen, false);
       navBack.classList.add('hidden');
+      resetHomeState();
     }
   });
 }
@@ -276,6 +303,7 @@ if (btnLatest) {
 const btnCreators = document.getElementById('btn-creators');
 if (btnCreators) {
   btnCreators.addEventListener('click', () => {
+    state.creatorPage = 1;
     showView(creatorsView, true);
     if (navBack) navBack.classList.remove('hidden'); 
     loadCreators();
@@ -285,11 +313,23 @@ if (btnCreators) {
 let searchTimeout;
 if (searchInput) {
   searchInput.addEventListener('input', () => {
+    if (searchClearBtn) {
+      searchClearBtn.style.display = searchInput.value.trim().length > 0 ? 'flex' : 'none';
+    }
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
       state.creatorPage = 1;
       filterAndSortCreators();
     }, 400);
+  });
+}
+
+if (searchClearBtn) {
+  searchClearBtn.addEventListener('click', () => {
+    clearSearch();
+    state.creatorPage = 1;
+    if (searchInput) searchInput.focus();
+    filterAndSortCreators();
   });
 }
 
@@ -416,7 +456,34 @@ if (zipIndicator && zipContent) {
 if (zipViewer) {
   zipViewer.addEventListener('mousemove', updateZipNavVisibility);
 
+  let zipTouchStartX = 0;
+  let zipTouchStartY = 0;
+  let zipIsDragging = false;
+
+  zipViewer.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      zipTouchStartX = e.touches[0].clientX;
+      zipTouchStartY = e.touches[0].clientY;
+      zipIsDragging = false;
+    }
+  }, { passive: true });
+
+  zipViewer.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 1) {
+      const dx = e.touches[0].clientX - zipTouchStartX;
+      const dy = e.touches[0].clientY - zipTouchStartY;
+      if (Math.hypot(dx, dy) > 18) {
+        zipIsDragging = true;
+      }
+    }
+  }, { passive: true });
+
   zipViewer.addEventListener('click', (e) => {
+    if (zipIsDragging) {
+      zipIsDragging = false;
+      return;
+    }
+
     if (
       e.target.tagName.toLowerCase() === 'button' ||
       e.target.closest('#zip-nav') ||
@@ -427,6 +494,13 @@ if (zipViewer) {
       e.target.closest('#zip-nav-dropdown')
     ) {
       return;
+    }
+
+    if (e.target.tagName.toLowerCase() === 'video') {
+      const r = e.target.getBoundingClientRect();
+      if (e.clientY >= r.bottom - 60 && e.clientY <= r.bottom + 10) {
+        return;
+      }
     }
 
     const dropdown = document.getElementById("zip-nav-dropdown");
@@ -447,6 +521,13 @@ if (zipViewer) {
       return;
     }
 
+    const isZipNavVisible = zipNav && zipNav.classList.contains("visible");
+    // If nav buttons are currently visible, tapping anywhere on the screen hides them!
+    if (isZipNavVisible) {
+      setZipNavVisible(false, true);
+      return;
+    }
+
     // In 2D Matrix mode: tap left/right side of screen scrolls active folder row left/right with wrap-around
     if (zipContent && zipContent.classList.contains('gallery-2d-mode')) {
       const active = getActiveMediaItem();
@@ -461,7 +542,7 @@ if (zipViewer) {
           return;
         }
       }
-      setZipNavVisible(!state.zipNavManualVisible, true);
+      setZipNavVisible(true, true);
       return;
     }
 
@@ -479,27 +560,56 @@ if (zipViewer) {
       }
     }
 
-    setZipNavVisible(!state.zipNavManualVisible, true);
+    setZipNavVisible(true, true);
   });
 }
 
 if (zipContent) {
   let zipScrollSettleTimer;
+
+  zipContent.addEventListener('touchstart', () => {
+    zipContent._isTouching = true;
+    clearTimeout(zipScrollSettleTimer);
+  }, { passive: true });
+
+  zipContent.addEventListener('touchend', () => {
+    zipContent._isTouching = false;
+    const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
+    if (count > 1 && !zipContent._animId && !zipContent.classList.contains('gallery-2d-mode')) {
+      clearTimeout(zipScrollSettleTimer);
+      zipScrollSettleTimer = setTimeout(() => {
+        handleCarouselScrollSettled(zipContent, count);
+      }, 150);
+    }
+  }, { passive: true });
+
+  zipContent.addEventListener('touchcancel', () => {
+    zipContent._isTouching = false;
+  }, { passive: true });
+
   zipContent.addEventListener('scroll', () => {
     if (zipContent.classList.contains('gallery-2d-mode')) return;
     const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
     if (count <= 1) return;
-    const itemWidth = zipContent.clientWidth || window.innerWidth;
-    if (!itemWidth) return;
-    const rawIndex = Math.round(zipContent.scrollLeft / itemWidth);
-    const realIndex = (rawIndex - 1 + count) % count;
+    const { firstOffset, step } = getCarouselMetrics(zipContent);
+    if (!step) return;
+    const rawIndex = Math.round((zipContent.scrollLeft - firstOffset) / step) + 1;
+    const realIndex = ((rawIndex - 1) % count + count) % count;
     if (zipIndicator) zipIndicator.textContent = `${realIndex + 1} / ${count}`;
 
-    if (!zipContent._animId) {
+    if (!zipContent._animId && !zipContent._isTouching) {
       clearTimeout(zipScrollSettleTimer);
       zipScrollSettleTimer = setTimeout(() => {
         handleCarouselScrollSettled(zipContent, count);
-      }, 60);
+      }, 150);
+    }
+  });
+
+  zipContent.addEventListener('scrollend', () => {
+    if (zipContent.classList.contains('gallery-2d-mode')) return;
+    const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
+    if (count > 1 && !zipContent._animId && !zipContent._isTouching) {
+      handleCarouselScrollSettled(zipContent, count);
     }
   });
 }

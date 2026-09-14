@@ -3,6 +3,8 @@ import { zipViewer, zipTitle, zipContent, zipIndicator, setZipNavVisible, closeZ
 import { formatBytes, showMediaUnavailableWarning, renderMediaProgress, renderArchiveProgress } from "./utils.js";
 import { syncCarouselClones, playbackObserver, getCurrentGalleryPost } from "./feed.js";
 import { createExternalAbortSignal, renderArchiveCardUI, escapeHtml, isImageOrVideo } from "./externalGalleries.js";
+import { attachCustomVideoPlayer } from "./player.js";
+import { loadGifPlayer } from "./gifPlayer.js";
 
 export const dropboxFolderCache = new Map();
 const dropboxInFlight = new Map();
@@ -185,10 +187,11 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
   }
 
   const ext = url.split("?")[0].split(".").pop().toLowerCase();
-  const isImage = ["jpg", "jpeg", "png", "gif", "webp", "avif"].includes(ext);
+  const isGif = ext === "gif";
+  const isImage = ["jpg", "jpeg", "png", "webp", "avif"].includes(ext);
   const isVideo = ["mp4", "webm", "mov"].includes(ext);
 
-  if (isImage || isVideo) {
+  if (isGif || isImage || isVideo) {
     let targetUrl = url;
     try {
       const u = new URL(url);
@@ -201,6 +204,23 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
       progressOverlay.style.display = "flex";
       renderMediaProgress(progressOverlay, "Loading...", null, filename, "", "");
     }
+    const triggerRetry = () => {
+      item.querySelectorAll("video, audio, img.post-media, canvas.post-media").forEach((el) => el.remove());
+      delete item.dataset.loaded;
+      handleDropboxFileCard(item, url, postTitle, filename, progressOverlay, signal);
+    };
+    if (isGif) {
+      loadGifPlayer({
+        item,
+        url: directUrl,
+        filename,
+        progressOverlay,
+        onRetry: triggerRetry,
+        syncCarouselClones,
+        playbackObserver,
+      });
+      return;
+    }
     if (isVideo) {
       const video = document.createElement("video");
       video.className = "post-media";
@@ -212,16 +232,11 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
       video.setAttribute("webkit-playsinline", "");
       video.setAttribute("muted", "");
       video.preload = "metadata";
-      video.controls = true;
+      video.controls = false;
       video.addEventListener("canplay", () => {
         if (progressOverlay) progressOverlay.style.display = "none";
         syncCarouselClones(item);
       });
-      const triggerRetry = () => {
-        item.querySelectorAll("video, audio, img.post-media").forEach((el) => el.remove());
-        delete item.dataset.loaded;
-        handleDropboxFileCard(item, url, postTitle, filename, progressOverlay, signal);
-      };
       video.onerror = async () => {
         item.querySelectorAll("video.post-media").forEach((el) => el.remove());
         let errorStatus = "500";
@@ -232,6 +247,7 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
         if (progressOverlay) showMediaUnavailableWarning(progressOverlay, { type: "video", filename, errorStatus, externalUrl: url, onRetry: triggerRetry });
       };
       item.appendChild(video);
+      attachCustomVideoPlayer(video, item);
       playbackObserver.observe(video);
     } else {
       const img = new Image();
@@ -332,7 +348,7 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
         video.setAttribute("webkit-playsinline", "");
         video.setAttribute("muted", "");
         video.preload = "metadata";
-        video.controls = true;
+        video.controls = false;
         video.addEventListener("canplay", () => {
           syncCarouselClones(item);
         });
@@ -359,6 +375,7 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
           }
         };
         item.appendChild(video);
+        attachCustomVideoPlayer(video, item);
         playbackObserver.observe(video);
       } else {
         const img = new Image();
@@ -748,8 +765,11 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
     if (isVideo) {
       const video = document.createElement("video");
       video.src = directUrl;
-      video.controls = true;
       video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      video.setAttribute("webkit-playsinline", "");
+      video.loop = true;
+      video.muted = true;
       video.style.maxWidth = "100%";
       video.style.maxHeight = "100%";
       video.style.objectFit = "contain";
@@ -765,6 +785,7 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
         }
       };
       container.appendChild(video);
+      attachCustomVideoPlayer(video, container);
     } else {
       const img = document.createElement("img");
       img.src = directUrl;
@@ -1336,13 +1357,17 @@ function loadAndDisplayDropboxItem(container, file, signal) {
       c.querySelectorAll("img, video").forEach((el) => el.remove());
 
       const video = document.createElement("video");
-      video.controls = true;
       video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      video.setAttribute("webkit-playsinline", "");
+      video.loop = true;
+      video.muted = true;
       video.style.maxWidth = "100%";
       video.style.maxHeight = "100%";
       video.style.objectFit = "contain";
       video.preload = "metadata";
       c.appendChild(video);
+      attachCustomVideoPlayer(video, c);
 
       const onReady = () => {
         allMatchingContainers.forEach((target) => {

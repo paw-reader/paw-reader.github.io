@@ -1,7 +1,7 @@
 import { state } from "./state.js";
 import { formatBytes, showMediaUnavailableWarning, renderArchiveProgress, renderMediaProgress, escapeHtml } from "./utils.js";
 import { showView, welcomeScreen, navBack, updateNavTabs, wrapCarousel, settingsMenu } from "./nav.js";
-import { handleCarouselScrollSettled, smoothScroll, navigateCarousel } from "./feed.js";
+import { handleCarouselScrollSettled, smoothScroll, navigateCarousel, getCarouselMetrics } from "./feed.js";
 import { abortExternalGallery } from "./externalGalleries.js";
 
 export const zipViewer = document.getElementById("zip-viewer");
@@ -78,6 +78,9 @@ export function setZipNavVisible(visible, manual = false) {
   } else {
     closeZipNavDropdown();
     if (zipNav) {
+      if (zipNav.classList.contains("visible")) {
+        document.dispatchEvent(new CustomEvent("paw:navhidden"));
+      }
       zipNav.classList.remove("visible");
     }
   }
@@ -166,10 +169,13 @@ export function getActiveMediaItem() {
   // 1D Carousel
   const items = Array.from(zipContent.querySelectorAll(".media-item"));
   if (items.length === 0) return null;
-  const itemWidth = zipContent.clientWidth || window.innerWidth;
-  const rawIdx = Math.round(zipContent.scrollLeft / itemWidth);
   const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || items.length;
-  const realIdx = count > 1 ? ((rawIdx - 1 + count) % count) : 0;
+  let realIdx = 0;
+  if (count > 1) {
+    const { firstOffset, step } = getCarouselMetrics(zipContent);
+    const rawIdx = Math.round((zipContent.scrollLeft - firstOffset) / step) + 1;
+    realIdx = ((rawIdx - 1) % count + count) % count;
+  }
   const nonClones = items.filter((i) => i.dataset.isClone !== "true");
   const pool = nonClones.length > 0 ? nonClones : items;
   const activeItem = pool[realIdx] || pool[0];
@@ -911,6 +917,11 @@ export function navigateFolder(direction) {
 
   zipContent._targetFolderIndex = nextIndex;
   const targetFolderRow = rows[nextIndex];
+  if (targetFolderRow && targetFolderRow.children.length > 2 && targetFolderRow.scrollLeft === 0) {
+    const { firstOffset } = getCarouselMetrics(targetFolderRow);
+    targetFolderRow.scrollLeft = firstOffset;
+    targetFolderRow._restingScrollLeft = firstOffset;
+  }
   const targetY = targetFolderRow && targetFolderRow.offsetTop !== undefined && targetFolderRow.offsetTop >= 0
     ? targetFolderRow.offsetTop
     : nextIndex * rowHeight;
@@ -1068,20 +1079,56 @@ export function render2DMatrixGallery(folderGroups, options = {}) {
     }
 
     let rowSettleTimer;
-    folderRow.addEventListener("scroll", () => {
-      closeZipNavDropdown();
-      updateZipIndicatorsAndHUD();
-      if (!folderRow._animId && group.files.length > 1) {
+    folderRow.addEventListener("touchstart", () => {
+      folderRow._isTouching = true;
+      folderRow._restingScrollLeft = folderRow.scrollLeft;
+      clearTimeout(rowSettleTimer);
+    }, { passive: true });
+
+    folderRow.addEventListener("touchend", () => {
+      folderRow._isTouching = false;
+      if (group.files.length > 1 && !folderRow._animId) {
         clearTimeout(rowSettleTimer);
         rowSettleTimer = setTimeout(() => {
           handleCarouselScrollSettled(folderRow, group.files.length);
-        }, 60);
+          folderRow._restingScrollLeft = folderRow.scrollLeft;
+        }, 150);
       }
     }, { passive: true });
 
+    folderRow.addEventListener("touchcancel", () => {
+      folderRow._isTouching = false;
+    }, { passive: true });
+
+    folderRow.addEventListener("scroll", () => {
+      if (folderRow._isVerticalScrolling && folderRow._restingScrollLeft !== undefined) {
+        folderRow.scrollLeft = folderRow._restingScrollLeft;
+        return;
+      }
+      closeZipNavDropdown();
+      updateZipIndicatorsAndHUD();
+      if (!folderRow._animId && !folderRow._isTouching && group.files.length > 1) {
+        clearTimeout(rowSettleTimer);
+        rowSettleTimer = setTimeout(() => {
+          handleCarouselScrollSettled(folderRow, group.files.length);
+          folderRow._restingScrollLeft = folderRow.scrollLeft;
+        }, 150);
+      }
+    }, { passive: true });
+
+    folderRow.addEventListener("scrollend", () => {
+      if (!folderRow._animId && !folderRow._isTouching && group.files.length > 1) {
+        handleCarouselScrollSettled(folderRow, group.files.length);
+        folderRow._restingScrollLeft = folderRow.scrollLeft;
+      }
+    });
+
     zipContent.appendChild(folderRow);
-    const itemWidth = window.innerWidth;
-    folderRow.scrollLeft = group.files.length > 1 ? 1 * itemWidth : 0;
+    const initialOffset = group.files.length > 1
+      ? (folderRow.children[1] ? folderRow.children[1].offsetLeft : (folderRow.clientWidth || window.innerWidth))
+      : 0;
+    folderRow.scrollLeft = initialOffset;
+    folderRow._restingScrollLeft = initialOffset;
   });
 
   zipContent.addEventListener("scroll", () => {

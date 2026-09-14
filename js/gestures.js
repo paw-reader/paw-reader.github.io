@@ -1,6 +1,6 @@
 import { state } from "./state.js";
 import { closeAllPostInfo, feedView, creatorsView, welcomeScreen, showView, updateNavTabs } from "./nav.js";
-import { feed, navigateCarousel, recycleOffscreenCards, resetFeed } from "./feed.js";
+import { feed, navigateCarousel, recycleOffscreenCards, resetFeed, getCarouselMetrics } from "./feed.js";
 import { zipViewer, zipContent, setZipNavVisible, closeZipGallery, getActiveMediaItem, toggleZipFileInfoModal, navigateFolder } from "./zip.js";
 
 export function initGestures() {
@@ -28,9 +28,9 @@ export function initGestures() {
         c.dataset.rawIndex = c.children.length > 1 ? "1" : "0";
       }
       // FIX 2: Instantly snap the horizontal images so they don't flash the old pixel positions
-      const w = c.clientWidth || window.innerWidth;
       const targetIndex = parseInt(c.dataset.rawIndex, 10) || 0;
-      c.scrollTo({ left: targetIndex * w, behavior: "auto" });
+      const targetX = c.children[targetIndex] ? c.children[targetIndex].offsetLeft : targetIndex * (c.clientWidth || window.innerWidth);
+      c.scrollTo({ left: targetX, behavior: "auto" });
     });
     
     clearTimeout(resizeTimer);
@@ -40,9 +40,9 @@ export function initGestures() {
       feed.scrollTo({ top: activeCardIndex * finalH, behavior: "auto" });
       
       carousels.forEach(c => {
-        const finalW = c.clientWidth || window.innerWidth;
         const targetIndex = parseInt(c.dataset.rawIndex, 10) || 0;
-        c.scrollTo({ left: targetIndex * finalW, behavior: "auto" });
+        const targetX = c.children[targetIndex] ? c.children[targetIndex].offsetLeft : targetIndex * (c.clientWidth || window.innerWidth);
+        c.scrollTo({ left: targetX, behavior: "auto" });
         c.style.scrollSnapType = "";
       });
       
@@ -53,6 +53,10 @@ export function initGestures() {
 
   if (feed) {
     feed.addEventListener("scroll", (e) => {
+      if (feed._isHorizontalScrolling && feed._restingScrollTop !== undefined) {
+        feed.scrollTop = feed._restingScrollTop;
+        return;
+      }
       if (!isResizing) {
         const h = (feed && feed.clientHeight) || window.innerHeight || 1;
         activeCardIndex = Math.round(feed.scrollTop / h);
@@ -81,8 +85,11 @@ export function initGestures() {
       if (e.target.classList.contains("media-carousel")) {
         closeAllPostInfo();
         if (!isResizing) {
-          const w = e.target.clientWidth || window.innerWidth;
-          e.target.dataset.rawIndex = Math.round(e.target.scrollLeft / w);
+          const { firstOffset, step } = getCarouselMetrics(e.target);
+          if (step) {
+            const hasClones = e.target.children.length > 2;
+            e.target.dataset.rawIndex = Math.round((e.target.scrollLeft - firstOffset) / step) + (hasClones ? 1 : 0);
+          }
         }
       }
     },
@@ -231,6 +238,7 @@ export function initGestures() {
 
   function shouldIgnoreFeedGestures(e) {
     if (
+      e.target.closest("#nav") ||
       e.target.closest("#zip-nav") ||
       e.target.closest("#zip-indicator") ||
       e.target.closest("#settings-menu") ||
@@ -325,15 +333,8 @@ export function initGestures() {
         return;
       } else if (carousel && Math.abs(wheelAccumX) > Math.abs(wheelAccumY)) {
         wheelAccumX -= stepsX * SCROLL_THRESHOLD;
-
-        let clampedStep = Math.sign(stepsX); 
-
-        const w = window.innerWidth;
-        let target = Math.round(carousel.scrollLeft / w) * w;
-        target += clampedStep * w;
-        target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
-        carousel.scrollTo({ left: target, behavior: "auto" });
         wheelAccumY = 0;
+        navigateCarousel(carousel, stepsX > 0 ? "right" : "left");
       } else if (feedEl && feedView && feedView.classList.contains("active")) {
         if (!feed || !feed.querySelector(".post-card")) return;
         wheelAccumY -= stepsY * SCROLL_THRESHOLD;
@@ -352,16 +353,57 @@ export function initGestures() {
   let globalTouchStartX = 0;
   let globalTouchStartY = 0;
   let touchHijackHandled = false;
+  let gestureLocked = null;
+  let activeGestureCarousel = null;
+  let activeGestureFolderRow = null;
+
+  const cleanupGestureLock = () => {
+    if (activeGestureCarousel) {
+      activeGestureCarousel._isVerticalScrolling = false;
+      activeGestureCarousel = null;
+    }
+    if (activeGestureFolderRow) {
+      activeGestureFolderRow._isVerticalScrolling = false;
+      activeGestureFolderRow = null;
+    }
+    if (feed) {
+      feed._isHorizontalScrolling = false;
+    }
+    if (zipContent) {
+      zipContent._isHorizontalScrolling = false;
+    }
+    gestureLocked = null;
+  };
 
   document.addEventListener(
     "touchstart",
     (e) => {
-      if (!window.pawAnimationsDisabled) return;
       if (e.touches.length !== 1) return;
       if (shouldIgnoreFeedGestures(e)) return;
       globalTouchStartX = e.touches[0].clientX;
       globalTouchStartY = e.touches[0].clientY;
       touchHijackHandled = false;
+      gestureLocked = null;
+
+      activeGestureCarousel = e.target.closest(".media-carousel");
+      activeGestureFolderRow = e.target.closest(".zip-folder-row");
+
+      if (activeGestureCarousel) {
+        activeGestureCarousel._restingScrollLeft = activeGestureCarousel.scrollLeft;
+        activeGestureCarousel._isVerticalScrolling = false;
+      }
+      if (activeGestureFolderRow) {
+        activeGestureFolderRow._restingScrollLeft = activeGestureFolderRow.scrollLeft;
+        activeGestureFolderRow._isVerticalScrolling = false;
+      }
+      if (feed) {
+        feed._restingScrollTop = feed.scrollTop;
+        feed._isHorizontalScrolling = false;
+      }
+      if (zipContent) {
+        zipContent._restingScrollTop = zipContent.scrollTop;
+        zipContent._isHorizontalScrolling = false;
+      }
     },
     { passive: true }
   );
@@ -369,14 +411,50 @@ export function initGestures() {
   document.addEventListener(
     "touchmove",
     (e) => {
-      if (!window.pawAnimationsDisabled) return;
+      if (e.touches.length !== 1) return;
       if (shouldIgnoreFeedGestures(e)) return;
+
+      const dx = Math.abs(e.touches[0].clientX - globalTouchStartX);
+      const dy = Math.abs(e.touches[0].clientY - globalTouchStartY);
+
+      if (gestureLocked === null && (dx > 8 || dy > 8)) {
+        if (dy >= dx) {
+          gestureLocked = "vertical";
+          if (activeGestureCarousel) {
+            activeGestureCarousel._isVerticalScrolling = true;
+          }
+          if (activeGestureFolderRow) {
+            activeGestureFolderRow._isVerticalScrolling = true;
+          }
+        } else {
+          gestureLocked = "horizontal";
+          if (feed) {
+            feed._isHorizontalScrolling = true;
+          }
+          if (zipContent) {
+            zipContent._isHorizontalScrolling = true;
+          }
+        }
+      }
+
+      if (activeGestureCarousel && activeGestureCarousel._isVerticalScrolling && activeGestureCarousel._restingScrollLeft !== undefined) {
+        if (activeGestureCarousel.scrollLeft !== activeGestureCarousel._restingScrollLeft) {
+          activeGestureCarousel.scrollLeft = activeGestureCarousel._restingScrollLeft;
+        }
+      }
+      if (activeGestureFolderRow && activeGestureFolderRow._isVerticalScrolling && activeGestureFolderRow._restingScrollLeft !== undefined) {
+        if (activeGestureFolderRow.scrollLeft !== activeGestureFolderRow._restingScrollLeft) {
+          activeGestureFolderRow.scrollLeft = activeGestureFolderRow._restingScrollLeft;
+        }
+      }
+
+      if (!window.pawAnimationsDisabled) return;
 
       const textCard = e.target.closest(".post-text-card");
       if (textCard) {
-        const dy = globalTouchStartY - e.touches[0].clientY;
-        const atTop = textCard.scrollTop <= 0 && dy < 0;
-        const atBottom = textCard.scrollHeight - textCard.scrollTop <= textCard.clientHeight + 1 && dy > 0;
+        const textDy = globalTouchStartY - e.touches[0].clientY;
+        const atTop = textCard.scrollTop <= 0 && textDy < 0;
+        const atBottom = textCard.scrollHeight - textCard.scrollTop <= textCard.clientHeight + 1 && textDy > 0;
         if (!atTop && !atBottom) return;
       }
 
@@ -385,7 +463,11 @@ export function initGestures() {
     { passive: false }
   );
 
+  document.addEventListener("touchcancel", cleanupGestureLock, { passive: true });
+
   document.addEventListener("touchend", (e) => {
+    cleanupGestureLock();
+
     if (!window.pawAnimationsDisabled) return;
     if (shouldIgnoreFeedGestures(e)) return;
 
@@ -429,12 +511,7 @@ export function initGestures() {
       }
       return;
     } else if (carousel && Math.abs(dx) > Math.abs(dy)) {
-      const w = window.innerWidth;
-      let target = Math.round(carousel.scrollLeft / w) * w;
-      if (dx > 30) target += w;
-      else if (dx < -30) target -= w;
-      target = Math.max(0, Math.min(target, carousel.scrollWidth - carousel.clientWidth));
-      carousel.scrollTo({ left: target, behavior: "auto" });
+      navigateCarousel(carousel, dx > 30 ? "right" : "left");
     } else if (feedEl && feedView && feedView.classList.contains("active")) {
       if (!feed || !feed.querySelector(".post-card")) return;
       const h = window.innerHeight;

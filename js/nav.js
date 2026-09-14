@@ -20,7 +20,7 @@ export function isNavInteractive() {
   if (!nav) return false;
   if (nav.classList.contains("hidden")) return false;
   if (nav.classList.contains("auto-hide") && !nav.classList.contains("visible")) return false;
-  if (nav.classList.contains("auto-hide") && Date.now() - navLastVisibleTime < 400) return false;
+  if (nav.classList.contains("auto-hide") && Date.now() - navLastVisibleTime < 200) return false;
   return true;
 }
 
@@ -32,14 +32,16 @@ export function closeAllPostInfo() {
   }
 }
 
-window.lastMouseY = window.innerHeight;
+window.lastMouseY = -1;
 
 export function updateNavVisibility(mouseY = window.lastMouseY) {
   if (!nav || !nav.classList.contains("auto-hide")) return;
   const anyInfoExpanded = !!document.querySelector(".post-info.expanded");
   const dropdownOpen =
     !!document.getElementById("linked-accounts-dropdown") || !!document.getElementById("cum-posts-dropdown");
-  const isVisible = anyInfoExpanded || dropdownOpen || mouseY < 80 || state.navManualVisible;
+  const isMobile = window.innerWidth <= 768 || window.innerHeight <= 500;
+  const inNavZone = !isMobile && mouseY >= 0 && mouseY < 80;
+  const isVisible = anyInfoExpanded || dropdownOpen || inNavZone || state.navManualVisible;
   if (isVisible) {
     if (!nav.classList.contains("visible")) {
       navLastVisibleTime = Date.now();
@@ -47,6 +49,9 @@ export function updateNavVisibility(mouseY = window.lastMouseY) {
     nav.classList.add("visible");
     document.body.classList.add("nav-visible");
   } else {
+    if (nav.classList.contains("visible")) {
+      document.dispatchEvent(new CustomEvent("paw:navhidden"));
+    }
     nav.classList.remove("visible");
     document.body.classList.remove("nav-visible");
   }
@@ -215,6 +220,7 @@ export function updateNavTabs(creator) {
     if (index === 0) btn.style.background = "rgba(0, 123, 255, 0.6)";
 
     btn.addEventListener("click", (e) => {
+      e.stopPropagation();
       if (!isNavInteractive()) return;
 
       if (state.currentSite === "cum" && tab === "Posts" && postCategories.length > 0) {
