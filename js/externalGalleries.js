@@ -24,6 +24,7 @@ import {
 } from "./dropbox.js";
 import { formatBytes, escapeHtml } from "./utils.js";
 import { syncCarouselClones } from "./feed.js";
+import { closeZipGallery } from "./zip.js";
 
 // Re-export service-specific APIs for backwards compatibility
 export {
@@ -142,7 +143,7 @@ export function detectExternalGalleries(contentHtml) {
     else if (isDropboxUrl(raw)) dropboxUrls.add(raw);
   }
 
-  const text = contentHtml.replace(/<[^>]+>/g, " ");
+  const text = contentHtml.replace(/<a\b[^>]*>.*?<\/a>/gi, " ").replace(/<[^>]+>/g, " ");
   const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
   while ((match = urlRegex.exec(text)) !== null) {
     const raw = cleanUrl(match[1]);
@@ -166,6 +167,9 @@ export function renderExternalFileCard(item, type) {
   const filename = item.dataset.originalName || (type === "mega" ? "Mega Archive" : "Dropbox Archive");
 
   const progressOverlay = item.querySelector(".media-progress");
+  if (item._abortController) {
+    try { item._abortController.abort(); } catch (_) {}
+  }
   const scanController = new AbortController();
   item._abortController = scanController;
   const signal = scanController.signal;
@@ -256,6 +260,7 @@ export function renderArchiveCardUI(item, url, type, postTitle, archiveName, sig
   btnView.className = "zip-action-btn";
   const onGalleryClick = (e) => {
     e.stopPropagation();
+    closeZipGallery();
     const post = item._post || (item.closest('.post-card') && item.closest('.post-card')._post) || null;
     if (isMega) {
       openMegaGallery(url, archiveName || postTitle, post);

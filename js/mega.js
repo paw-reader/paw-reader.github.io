@@ -8,15 +8,20 @@ import { attachCustomVideoPlayer } from "./player.js";
 export const megaFolderCache = new Map();
 export const megaBlobCache = new Map();
 const MAX_BLOB_CACHE_ITEMS = 25;
+const MAX_BLOB_CACHE_BYTES = 200 * 1024 * 1024; // 200MB budget
+let currentBlobCacheBytes = 0;
 
 export function cacheMegaBlob(key, blob) {
-  if (megaBlobCache.size >= MAX_BLOB_CACHE_ITEMS) {
+  const blobSize = blob.size || 0;
+  while (megaBlobCache.size >= MAX_BLOB_CACHE_ITEMS || (currentBlobCacheBytes + blobSize > MAX_BLOB_CACHE_BYTES && megaBlobCache.size > 0)) {
     const oldestKey = megaBlobCache.keys().next().value;
-    if (oldestKey) {
-      megaBlobCache.delete(oldestKey);
-    }
+    if (!oldestKey) break;
+    const oldBlob = megaBlobCache.get(oldestKey);
+    if (oldBlob && oldBlob.size) currentBlobCacheBytes -= oldBlob.size;
+    megaBlobCache.delete(oldestKey);
   }
   megaBlobCache.set(key, blob);
+  currentBlobCacheBytes += blobSize;
 }
 
 export function base64urlToBytes(str) {
@@ -67,8 +72,8 @@ export function decryptNodeKey(kStr, folderKeyBytes, encAttr, cipherInstance = n
   if (!window.aesjs) return null;
   const aes = cipherInstance || (
     folderKeyBytes.length === 32
-      ? new window.aesjs.ModeOfOperation.ecb(Array.from(unmergeKeyMac(folderKeyBytes).subarray(0, 16)))
-      : new window.aesjs.ModeOfOperation.ecb(Array.from(folderKeyBytes.subarray(0, 16)))
+      ? new window.aesjs.ModeOfOperation.ecb(unmergeKeyMac(folderKeyBytes).subarray(0, 16))
+      : new window.aesjs.ModeOfOperation.ecb(folderKeyBytes.subarray(0, 16))
   );
 
   const parts = kStr.split("/").map((p) => p.split(":"));
@@ -78,7 +83,7 @@ export function decryptNodeKey(kStr, folderKeyBytes, encAttr, cipherInstance = n
       const encKeyBytes = base64urlToBytes(rawEncKeyStr);
       let rawKey = null;
       if (encKeyBytes.length === 32 || encKeyBytes.length === 16) {
-        rawKey = new Uint8Array(aes.decrypt(Array.from(encKeyBytes)));
+        rawKey = new Uint8Array(aes.decrypt(encKeyBytes));
       } else {
         continue;
       }
@@ -1137,100 +1142,6 @@ async function handleSingleMegaFile(parsed, title, signal) {
   if (zipContent) zipContent.appendChild(container);
 }
 
-function renderMegaCarousel(files, folderId, signal) {
-  const fileDataMap = new Map();
-  const cachedBlobs = new Map();
-
-  files.forEach((f) => fileDataMap.set(f.node.h, f));
-
-  if (window.zipMediaObserver) window.zipMediaObserver.disconnect();
-
-  const pCount = Math.max(1, window.pawPreloadCount || 1);
-  window.zipMediaObserver = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          const target = entry.target;
-          const fileId = target.dataset.fileId;
-          if (fileId && !target.dataset.loaded && !target.dataset.loading) {
-            loadAndDisplayMegaItem(target, fileDataMap.get(fileId), folderId, cachedBlobs, signal);
-          }
-        }
-      });
-    },
-    {
-      root: zipContent,
-      rootMargin: `0px ${pCount * 100}%`
-    }
-  );
-
-  files.forEach((file) => {
-    const itemContainer = createMegaItemContainer(file);
-    if (zipContent) zipContent.appendChild(itemContainer);
-    window.zipMediaObserver.observe(itemContainer);
-  });
-
-  if (zipContent) zipContent.dataset.mediaCount = files.length;
-
-  if (files.length > 1 && zipContent && zipContent.children.length > 1) {
-    const firstChild = zipContent.children[0];
-    const lastChild = zipContent.children[zipContent.children.length - 1];
-    const cloneFirst = firstChild.cloneNode(true);
-    const cloneLast = lastChild.cloneNode(true);
-
-    cloneFirst.dataset.isClone = "true";
-    cloneLast.dataset.isClone = "true";
-
-    zipContent.insertBefore(cloneLast, firstChild);
-    zipContent.appendChild(cloneFirst);
-
-    window.zipMediaObserver.observe(cloneFirst);
-    window.zipMediaObserver.observe(cloneLast);
-
-    void zipContent.offsetHeight;
-
-    const itemWidth = zipContent.clientWidth || window.innerWidth;
-    zipContent.style.scrollSnapType = "none";
-    zipContent.scrollLeft = itemWidth;
-
-    setTimeout(() => {
-      zipContent.style.scrollSnapType = "";
-    }, 50);
-  }
-}
-
-function createMegaItemContainer(file) {
-  const container = document.createElement("div");
-  container.className = "media-item";
-  container.dataset.fileId = file.node.h;
-  container.dataset.filename = file.name || "";
-  container.dataset.folder = "/";
-  container.dataset.size = String(file.size || 0);
-  container.dataset.link = file.directLink || "";
-  container.style.flex = "0 0 100vw";
-  container.style.height = "100%";
-  container.style.scrollSnapAlign = "start";
-  container.style.display = "flex";
-  container.style.alignItems = "center";
-  container.style.justifyContent = "center";
-  container.style.position = "relative";
-
-  const overlay = document.createElement("div");
-  overlay.className = "media-progress";
-  overlay.style.display = "flex";
-  renderMediaProgress(overlay, "Loading...", null, file.name, file.size ? formatBytes(file.size) : "", "");
-  container.appendChild(overlay);
-
-  const img = document.createElement("img");
-  img.style.maxWidth = "100%";
-  img.style.maxHeight = "100%";
-  img.style.objectFit = "contain";
-  img.style.display = "none";
-  img.decoding = "async";
-  container.appendChild(img);
-
-  return container;
-}
 
 async function loadAndDisplayMegaItem(container, file, folderId, cachedBlobs, signal) {
   if (!file || container.dataset.loading === "true") return;
@@ -1355,6 +1266,7 @@ async function loadAndDisplayMegaItem(container, file, folderId, cachedBlobs, si
     if (signal.aborted) return;
     console.warn(`[Mega] Failed to load Mega file ${file.name}:`, err.message || err);
     container.dataset.loading = "false";
+    file.cachedDlUrl = null;
     if (overlay) {
       const detectedStatus = String(err.status || (err.message && err.message.match(/HTTP\s+(\d{3})/i)?.[1]) || (err.message && err.message.match(/Mega error\s+(-\d+)/i)?.[1]) || "404");
       showMediaUnavailableWarning(overlay, {
@@ -1362,7 +1274,10 @@ async function loadAndDisplayMegaItem(container, file, folderId, cachedBlobs, si
         filename: file.name,
         errorStatus: detectedStatus,
         message: err.message || "Failed to load Mega file",
-        onRetry: () => loadAndDisplayMegaItem(container, file, folderId, cachedBlobs, signal)
+        onRetry: () => {
+          file.cachedDlUrl = null;
+          loadAndDisplayMegaItem(container, file, folderId, cachedBlobs, signal);
+        }
       });
     }
   }

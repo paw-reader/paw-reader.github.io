@@ -4,6 +4,9 @@ import { feed, navigateCarousel, recycleOffscreenCards, resetFeed, getCarouselMe
 import { zipViewer, zipContent, setZipNavVisible, closeZipGallery, getActiveMediaItem, toggleZipFileInfoModal, navigateFolder } from "./zip.js";
 
 export function initGestures() {
+  if (window._gesturesInitialized) return;
+  window._gesturesInitialized = true;
+
   let feedScrollTimeout;
   let recycleTimeout;
   
@@ -22,15 +25,26 @@ export function initGestures() {
     feed.scrollTo({ top: activeCardIndex * h, behavior: "auto" });
 
     const carousels = feed.querySelectorAll(".media-carousel");
+    // Pass 1: Set snap to none
     carousels.forEach(c => {
       c.style.scrollSnapType = "none";
       if (!c.dataset.rawIndex) {
         c.dataset.rawIndex = c.children.length > 1 ? "1" : "0";
       }
-      // FIX 2: Instantly snap the horizontal images so they don't flash the old pixel positions
+    });
+
+    // Pass 2: Batch geometry reads
+    const winW = window.innerWidth;
+    const offsets = [];
+    carousels.forEach(c => {
       const targetIndex = parseInt(c.dataset.rawIndex, 10) || 0;
-      const targetX = c.children[targetIndex] ? c.children[targetIndex].offsetLeft : targetIndex * (c.clientWidth || window.innerWidth);
-      c.scrollTo({ left: targetX, behavior: "auto" });
+      const targetX = c.children[targetIndex] ? c.children[targetIndex].offsetLeft : targetIndex * (c.clientWidth || winW);
+      offsets.push(targetX);
+    });
+
+    // Pass 3: Batch scroll writes
+    carousels.forEach((c, i) => {
+      c.scrollTo({ left: offsets[i], behavior: "auto" });
     });
     
     clearTimeout(resizeTimer);
@@ -39,10 +53,16 @@ export function initGestures() {
       const finalH = window.innerHeight;
       feed.scrollTo({ top: activeCardIndex * finalH, behavior: "auto" });
       
+      const finalWinW = window.innerWidth;
+      const finalOffsets = [];
       carousels.forEach(c => {
         const targetIndex = parseInt(c.dataset.rawIndex, 10) || 0;
-        const targetX = c.children[targetIndex] ? c.children[targetIndex].offsetLeft : targetIndex * (c.clientWidth || window.innerWidth);
-        c.scrollTo({ left: targetX, behavior: "auto" });
+        const targetX = c.children[targetIndex] ? c.children[targetIndex].offsetLeft : targetIndex * (c.clientWidth || finalWinW);
+        finalOffsets.push(targetX);
+      });
+
+      carousels.forEach((c, i) => {
+        c.scrollTo({ left: finalOffsets[i], behavior: "auto" });
         c.style.scrollSnapType = "";
       });
       
@@ -347,7 +367,7 @@ export function initGestures() {
         wheelAccumX = 0;
       }
     },
-    { passive: false }
+    { passive: !window.pawAnimationsDisabled }
   );
 
   let globalTouchStartX = 0;
@@ -460,7 +480,7 @@ export function initGestures() {
 
       if (e.cancelable) e.preventDefault();
     },
-    { passive: false }
+    { passive: !window.pawAnimationsDisabled }
   );
 
   document.addEventListener("touchcancel", cleanupGestureLock, { passive: true });

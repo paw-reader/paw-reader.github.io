@@ -121,11 +121,13 @@ export async function fetchDropboxFolderEntries(url, signal) {
   const timeoutId = setTimeout(() => timeoutController.abort("timeout"), 15000);
 
   let combinedSignal = timeoutController.signal;
+  let abortHandler = null;
   if (signal) {
     if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
       combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
     } else {
-      signal.addEventListener("abort", () => timeoutController.abort(), { once: true });
+      abortHandler = () => timeoutController.abort();
+      signal.addEventListener("abort", abortHandler, { once: true });
       combinedSignal = timeoutController.signal;
     }
   }
@@ -155,6 +157,10 @@ export async function fetchDropboxFolderEntries(url, signal) {
       }
 
       const data = await res.json();
+      if (dropboxFolderCache.size >= 50) {
+        const oldestKey = dropboxFolderCache.keys().next().value;
+        if (oldestKey) dropboxFolderCache.delete(oldestKey);
+      }
       dropboxFolderCache.set(cleanUrl, data);
       return data;
     } catch (fetchErr) {
@@ -165,6 +171,9 @@ export async function fetchDropboxFolderEntries(url, signal) {
       throw fetchErr;
     } finally {
       clearTimeout(timeoutId);
+      if (signal && abortHandler) {
+        try { signal.removeEventListener("abort", abortHandler); } catch (_) {}
+      }
       dropboxInFlight.delete(cleanUrl);
     }
   })();
@@ -859,8 +868,12 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
       return;
     }
 
-    // Fallback to interactive folder browser if no media files found anywhere
-    renderDropboxFolderBrowser(data, dropboxUrl, currentFolderName, folderStack, signal);
+    // Fallback to interactive folder browser if subfolders exist
+    const subfolders = entries.filter((f) => f.is_dir);
+    if (subfolders.length > 0) {
+      renderDropboxFolderBrowser(data, dropboxUrl, currentFolderName, folderStack, signal);
+      return;
+    }
 
     // Empty folder
     if (zipContent) {
@@ -1159,139 +1172,6 @@ function renderDropboxFolderBrowser(data, folderUrl, currentFolderName, folderSt
   zipContent.appendChild(root);
 }
 
-/**
- * Sets up the swipeable fullscreen carousel with on-demand streaming for each media slide.
- */
-function renderDropboxCarousel(files, folderUrl, signal, folderStack = [], currentFolderName = "", initialIndex = 0) {
-  if (zipContent) {
-    zipContent.classList.remove("folder-browser-mode");
-    zipContent.innerHTML = "";
-  }
-
-  if (window.zipMediaObserver) window.zipMediaObserver.disconnect();
-
-  const existingBackBtn = document.getElementById("dropbox-carousel-back-btn");
-  if (existingBackBtn) existingBackBtn.remove();
-
-  // Floating Back Button if inside a folder hierarchy
-  if (folderStack && folderStack.length > 0) {
-    const parent = folderStack[folderStack.length - 1];
-    const carouselBackBtn = document.createElement("button");
-    carouselBackBtn.id = "dropbox-carousel-back-btn";
-    carouselBackBtn.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="15 18 9 12 15 6"></polyline>
-      </svg>
-      <span>${escapeHtml(parent.name || "Folders")}</span>
-    `;
-    carouselBackBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      carouselBackBtn.remove();
-      openDropboxGallery(parent.url, parent.name, folderStack.slice(0, -1));
-    });
-    if (zipViewer) zipViewer.appendChild(carouselBackBtn);
-  }
-
-  if (zipTitle) zipTitle.textContent = currentFolderName || "Dropbox Gallery";
-  if (zipIndicator) {
-    zipIndicator.style.display = "";
-    zipIndicator.textContent = `${initialIndex + 1} / ${files.length}`;
-  }
-
-  const pCount = Math.max(1, window.pawPreloadCount || 1);
-  window.zipMediaObserver = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          const target = entry.target;
-          const idx = parseInt(target.dataset.fileIdx, 10);
-          if (!isNaN(idx) && files[idx] && !target.dataset.loaded && !target.dataset.loading) {
-            loadAndDisplayDropboxItem(target, files[idx], signal);
-          }
-        }
-      });
-    },
-    {
-      root: zipContent,
-      rootMargin: `0px ${pCount * 100}%`
-    }
-  );
-
-  files.forEach((file, idx) => {
-    const itemContainer = createDropboxItemContainer(file, idx, currentFolderName);
-    if (zipContent) zipContent.appendChild(itemContainer);
-    window.zipMediaObserver.observe(itemContainer);
-  });
-
-  if (zipContent) zipContent.dataset.mediaCount = files.length;
-
-  if (files.length > 1 && zipContent && zipContent.children.length > 1) {
-    const firstChild = zipContent.children[0];
-    const lastChild = zipContent.children[zipContent.children.length - 1];
-    const cloneFirst = firstChild.cloneNode(true);
-    const cloneLast = lastChild.cloneNode(true);
-
-    cloneFirst.dataset.isClone = "true";
-    cloneLast.dataset.isClone = "true";
-    cloneFirst.querySelectorAll("video, img").forEach((el) => el.remove());
-    cloneLast.querySelectorAll("video, img").forEach((el) => el.remove());
-    delete cloneFirst.dataset.loading;
-    delete cloneFirst.dataset.loaded;
-    delete cloneLast.dataset.loading;
-    delete cloneLast.dataset.loaded;
-    const p1 = cloneFirst.querySelector(".media-progress");
-    if (p1) p1.style.display = "flex";
-    const p2 = cloneLast.querySelector(".media-progress");
-    if (p2) p2.style.display = "flex";
-
-    zipContent.insertBefore(cloneLast, firstChild);
-    zipContent.appendChild(cloneFirst);
-
-    window.zipMediaObserver.observe(cloneFirst);
-    window.zipMediaObserver.observe(cloneLast);
-
-    void zipContent.offsetHeight;
-
-    const itemWidth = zipContent.clientWidth || window.innerWidth;
-    zipContent.style.scrollSnapType = "none";
-    zipContent.scrollLeft = (initialIndex + 1) * itemWidth;
-
-    setTimeout(() => {
-      zipContent.style.scrollSnapType = "";
-    }, 50);
-  } else if (zipContent) {
-    zipContent.scrollLeft = 0;
-  }
-}
-
-/**
- * Creates a media slide container with a progress placeholder.
- */
-function createDropboxItemContainer(file, idx, folderName = "") {
-  const container = document.createElement("div");
-  container.className = "media-item";
-  container.dataset.fileIdx = String(idx);
-  container.dataset.filename = file.filename;
-  container.dataset.folder = folderName || file.path || "/";
-  container.dataset.size = String(file.bytes || 0);
-  container.dataset.link = file.href || file.rawUrl || "";
-  container.style.flex = "0 0 100vw";
-  container.style.height = "100%";
-  container.style.scrollSnapAlign = "start";
-  container.style.display = "flex";
-  container.style.alignItems = "center";
-  container.style.justifyContent = "center";
-  container.style.position = "relative";
-
-  const overlay = document.createElement("div");
-  overlay.className = "media-progress";
-  overlay.style.display = "flex";
-  const displayName = file.path || file.filename;
-  renderMediaProgress(overlay, "Loading...", null, displayName, file.bytes ? formatBytes(file.bytes) : "", "");
-  container.appendChild(overlay);
-
-  return container;
-}
 
 /**
  * Loads an individual media item (streaming video or lazy loading image) into its slide.
@@ -1355,6 +1235,7 @@ function loadAndDisplayDropboxItem(container, file, signal) {
   if (isVideo) {
     allMatchingContainers.forEach((c) => {
       c.querySelectorAll("img, video").forEach((el) => el.remove());
+      if (c.dataset.isClone === "true") return;
 
       const video = document.createElement("video");
       video.playsInline = true;

@@ -283,16 +283,25 @@ export function detachMedia(item, force = false) {
     item._blobUrl = null;
   }
 
+  if (item._videoTimeout) {
+    clearTimeout(item._videoTimeout);
+    item._videoTimeout = null;
+  }
+
   const mediaEls = item.querySelectorAll("video, audio, img.post-media, canvas.post-media, .ext-archive-card, .video-player-wrapper");
   mediaEls.forEach((el) => {
     const tag = el.tagName ? el.tagName.toLowerCase() : "";
     if (tag === "video" || tag === "audio" || el.dataset?.isGif === "true") {
       playbackObserver.unobserve(el);
       if (typeof el.pause === "function") el.pause();
+      if (typeof el._cleanupCustomPlayer === "function") {
+        try { el._cleanupCustomPlayer(); } catch (_) {}
+        el._cleanupCustomPlayer = null;
+      }
       if (tag !== "canvas") {
         el.removeAttribute("src");
         while (el.firstChild) el.removeChild(el.firstChild);
-        el.load();
+        if (typeof el.load === "function") el.load();
       }
     } else if (tag === "img") {
       el.src = "";
@@ -348,6 +357,9 @@ export function resetFeed() {
   state.hasMore = true;
   state.isFetching = false;
   feedObserver.disconnect();
+  mediaObserver.disconnect();
+  flagObserver.disconnect();
+  playbackObserver.disconnect();
 }
 
 export async function loadMediaWithProgress(item) {
@@ -852,6 +864,7 @@ export async function loadMediaWithProgress(item) {
     const isImagePath = p && /\.(jpe?g|png|webp|gif|avif)$/i.test(p);
     if (isImagePath && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
       videoTimeout = setTimeout(() => {
+        item._videoTimeout = null;
         if (video.readyState < 2) {
           video.style.display = "none";
           const thumbImg = document.createElement("img");
@@ -871,15 +884,22 @@ export async function loadMediaWithProgress(item) {
           item.appendChild(thumbImg);
         }
       }, 12000);
+      item._videoTimeout = videoTimeout;
     }
 
     video.addEventListener("loadedmetadata", () => {
-      if (videoTimeout) clearTimeout(videoTimeout);
+      if (videoTimeout) {
+        clearTimeout(videoTimeout);
+        item._videoTimeout = null;
+      }
       updateVideoProgress("Buffering...");
     });
 
     video.addEventListener("canplay", () => {
-      if (videoTimeout) clearTimeout(videoTimeout);
+      if (videoTimeout) {
+        clearTimeout(videoTimeout);
+        item._videoTimeout = null;
+      }
       hideOverlay();
       syncCarouselClones(item);
     });
@@ -1649,6 +1669,10 @@ export function createPostCard(post) {
     let scrollSettleTimer;
     carousel.addEventListener("touchstart", () => {
       carousel._isTouching = true;
+      if (carousel._animId) {
+        cancelAnimationFrame(carousel._animId);
+        carousel._animId = null;
+      }
       carousel._restingScrollLeft = carousel.scrollLeft;
       clearTimeout(scrollSettleTimer);
     }, { passive: true });

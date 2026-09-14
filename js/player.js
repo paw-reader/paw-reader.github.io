@@ -384,12 +384,14 @@ export function attachCustomVideoPlayer(video, container) {
     }
   }, { passive: false });
 
-  volumeSliderWrap.addEventListener("touchend", (e) => {
+  const endVolumeScrub = (e) => {
     e.stopPropagation();
     isVolumeScrubbing = false;
     volumeSliderWrap.classList.remove("scrubbing");
     resetAutoHide();
-  });
+  };
+  volumeSliderWrap.addEventListener("touchend", endVolumeScrub);
+  volumeSliderWrap.addEventListener("touchcancel", endVolumeScrub);
 
   // --- Timeline & Progress ---
   function updateTimeline() {
@@ -467,12 +469,14 @@ export function attachCustomVideoPlayer(video, container) {
     }
   }, { passive: false });
 
-  timeline.addEventListener("touchend", (e) => {
+  const endTimelineScrub = (e) => {
     e.stopPropagation();
     isScrubbing = false;
     timeline.classList.remove("scrubbing");
     resetAutoHide();
-  });
+  };
+  timeline.addEventListener("touchend", endTimelineScrub);
+  timeline.addEventListener("touchcancel", endTimelineScrub);
 
   // --- Double-Tap Skip Feedback ---
   function showSkipFeedback(side, seconds) {
@@ -648,7 +652,7 @@ export function attachCustomVideoPlayer(video, container) {
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     } else if (video.webkitDisplayingFullscreen) {
-      video.webkitExitFullscreen();
+      try { video.webkitExitFullscreen(); } catch (_) {}
     } else if (wrapper.requestFullscreen) {
       wrapper.requestFullscreen().catch(() => {});
     } else if (container.requestFullscreen) {
@@ -656,7 +660,7 @@ export function attachCustomVideoPlayer(video, container) {
     } else if (video.requestFullscreen) {
       video.requestFullscreen().catch(() => {});
     } else if (video.webkitEnterFullscreen) {
-      video.webkitEnterFullscreen();
+      try { video.webkitEnterFullscreen(); } catch (_) {}
     }
   }
 

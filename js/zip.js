@@ -1,7 +1,7 @@
 import { state } from "./state.js";
 import { formatBytes, showMediaUnavailableWarning, renderArchiveProgress, renderMediaProgress, escapeHtml } from "./utils.js";
 import { showView, welcomeScreen, navBack, updateNavTabs, wrapCarousel, settingsMenu } from "./nav.js";
-import { handleCarouselScrollSettled, smoothScroll, navigateCarousel, getCarouselMetrics } from "./feed.js";
+import { handleCarouselScrollSettled, smoothScroll, navigateCarousel, getCarouselMetrics, getCurrentGalleryPost } from "./feed.js";
 import { abortExternalGallery } from "./externalGalleries.js";
 
 export const zipViewer = document.getElementById("zip-viewer");
@@ -372,11 +372,8 @@ export function jumpToFolder(folderIdx) {
   const targetFolderRow = rows[folderIdx];
   if (!targetFolderRow) return;
 
-  // 1. Pause and disconnect observer so intermediate rows are never triggered
+  // 1. Flag jumping mode so observer callback ignores intermediate rows
   window._isJumpingZipGallery = true;
-  if (window.zipMediaObserver) {
-    window.zipMediaObserver.disconnect();
-  }
 
   // 2. Reset horizontal scroll on target row to its first non-clone file
   if (targetFolderRow._animId) {
@@ -403,18 +400,9 @@ export function jumpToFolder(folderIdx) {
   // 4. Update HUD immediately
   updateZipIndicatorsAndHUD();
 
-  // 5. Re-observe slides in next frame once layout has settled
+  // 5. Restore observer processing in next frame once layout has settled
   requestAnimationFrame(() => {
     window._isJumpingZipGallery = false;
-    if (window.zipMediaObserver && zipContent) {
-      rows.forEach((row) => {
-        row.querySelectorAll(".media-item").forEach((slide) => {
-          if (slide.dataset.loaded !== "true") {
-            window.zipMediaObserver.observe(slide);
-          }
-        });
-      });
-    }
     updateZipIndicatorsAndHUD();
   });
 }
@@ -427,11 +415,8 @@ export function jumpToFile(targetRow, fileIdx) {
 
   closeZipNavDropdown();
 
-  // 1. Pause and disconnect observer
+  // 1. Flag jumping mode
   window._isJumpingZipGallery = true;
-  if (window.zipMediaObserver) {
-    window.zipMediaObserver.disconnect();
-  }
 
   // 2. Jump horizontally instantly and precisely to the non-clone target slide
   if (targetRow._animId) {
@@ -451,16 +436,9 @@ export function jumpToFile(targetRow, fileIdx) {
   // 3. Update HUD immediately
   updateZipIndicatorsAndHUD();
 
-  // 4. Re-observe slides in next frame
+  // 4. Restore observer processing in next frame
   requestAnimationFrame(() => {
     window._isJumpingZipGallery = false;
-    if (window.zipMediaObserver && zipContent) {
-      zipContent.querySelectorAll(".media-item").forEach((slide) => {
-        if (slide.dataset.loaded !== "true") {
-          window.zipMediaObserver.observe(slide);
-        }
-      });
-    }
     updateZipIndicatorsAndHUD();
   });
 }
@@ -1014,7 +992,7 @@ export function render2DMatrixGallery(folderGroups, options = {}) {
     });
   }, {
     root: null,
-    rootMargin: `${pCount * 100}%`,
+    rootMargin: `20% ${pCount * 100}% 20% ${pCount * 100}%`,
     threshold: [0, 0.5]
   });
 
@@ -1209,6 +1187,7 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
 
     zip.forEach((relativePath, zipEntry) => {
       if (zipEntry.dir) return;
+      if (relativePath.startsWith("__MACOSX/") || relativePath.split("/").some((p) => p.startsWith("."))) return;
       const ext = relativePath.split(".").pop().toLowerCase();
       if (!["jpg", "jpeg", "png", "gif", "webp", "avif"].includes(ext)) return;
 
@@ -1227,7 +1206,7 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
         entry: zipEntry,
         name: parts[parts.length - 1],
         relativePath,
-        size: zipEntry._data?.uncompressedSize || 0
+        size: zipEntry.uncompressedSize !== undefined ? zipEntry.uncompressedSize : (zipEntry._data?.uncompressedSize || 0)
       });
     });
 

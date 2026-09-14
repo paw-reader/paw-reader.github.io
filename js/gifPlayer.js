@@ -470,10 +470,16 @@ function createGifVideoElement(compositeData) {
     }
 
     renderFrameAtTime(playbackTime);
-    canvas.dispatchEvent(new Event("timeupdate"));
+    if (!lastTimeupdateDispatch || now - lastTimeupdateDispatch >= 250) {
+      lastTimeupdateDispatch = now;
+      canvas.dispatchEvent(new Event("timeupdate"));
+    }
 
     rafId = requestAnimationFrame(tick);
   }
+
+  let lastTimeupdateDispatch = 0;
+  let isCleanedUp = false;
 
   function startLoop() {
     if (rafId) cancelAnimationFrame(rafId);
@@ -495,10 +501,14 @@ function createGifVideoElement(compositeData) {
   if (typeof createImageBitmap === "function") {
     (async () => {
       for (const f of frames) {
-        if (!canvas.isConnected && canvas.parentNode === null) break;
+        if (isCleanedUp || (!canvas.isConnected && canvas.parentNode === null)) break;
         try {
           if (f.imageData) {
             const bmp = await createImageBitmap(f.imageData);
+            if (isCleanedUp) {
+              if (typeof bmp.close === "function") bmp.close();
+              break;
+            }
             f.bitmap = bmp;
             f.imageData = null;
           }
@@ -508,6 +518,11 @@ function createGifVideoElement(compositeData) {
   }
 
   // --- Duck-typed HTMLVideoElement API ---
+  canvas.load = () => {};
+  canvas.playbackRate = 1.0;
+  canvas.seeking = false;
+  canvas.currentSrc = "";
+
   Object.defineProperty(canvas, "videoWidth", {
     get: () => width,
     configurable: true,
@@ -593,6 +608,7 @@ function createGifVideoElement(compositeData) {
 
   // Cleanup helper to cancel animation loop and close GPU textures
   canvas._cleanupGif = function () {
+    isCleanedUp = true;
     stopLoop();
     for (const f of frames) {
       if (f.bitmap && typeof f.bitmap.close === "function") {
@@ -600,6 +616,7 @@ function createGifVideoElement(compositeData) {
           f.bitmap.close();
         } catch (_) {}
       }
+      f.bitmap = null;
       f.imageData = null;
     }
   };
@@ -760,6 +777,10 @@ export async function loadGifPlayer({
 
     item._cleanupGif = () => {
       if (playbackObserver) playbackObserver.unobserve(canvas);
+      if (typeof canvas._cleanupCustomPlayer === "function") {
+        try { canvas._cleanupCustomPlayer(); } catch (_) {}
+        canvas._cleanupCustomPlayer = null;
+      }
       if (typeof canvas._cleanupGif === "function") {
         canvas._cleanupGif();
       }
