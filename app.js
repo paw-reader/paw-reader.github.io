@@ -61,6 +61,7 @@ window.pawAutoDownloadZip = localStorage.getItem('paw_auto_download_zip') === 't
 window.pawHideCovers = localStorage.getItem('paw_hide_covers') === 'true';
 const savedPreload = localStorage.getItem('paw_preload_count');
 window.pawPreloadCount = savedPreload !== null ? parseInt(savedPreload, 10) : 1;
+window.pawCustomGifPlayer = localStorage.getItem('paw_custom_gif_player') !== 'false';
 if (window.pawAnimationsDisabled) document.body.classList.add('no-animations');
 
 function formatWorkerVersion(raw) {
@@ -155,6 +156,15 @@ if (settingPreloadCount) {
   settingPreloadCount.addEventListener('change', (e) => {
     window.pawPreloadCount = parseInt(e.target.value, 10);
     localStorage.setItem('paw_preload_count', window.pawPreloadCount);
+  });
+}
+
+const settingCustomGifPlayer = document.getElementById('setting-custom-gif-player');
+if (settingCustomGifPlayer) {
+  settingCustomGifPlayer.checked = window.pawCustomGifPlayer;
+  settingCustomGifPlayer.addEventListener('change', (e) => {
+    window.pawCustomGifPlayer = e.target.checked;
+    localStorage.setItem('paw_custom_gif_player', window.pawCustomGifPlayer);
   });
 }
 

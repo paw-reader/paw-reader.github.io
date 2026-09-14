@@ -222,7 +222,8 @@ export function preloadUpcomingMedia(carousel) {
         item.dataset.type === "audio" ||
         item.dataset.type === "mega" ||
         item.dataset.type === "dropbox" ||
-        item.dataset.type === "zip"
+        item.dataset.type === "zip" ||
+        item.dataset.type === "gif"
       ) {
         continue;
       }
