@@ -44,17 +44,13 @@ const flagObserver = new IntersectionObserver((entries, observer) => {
     if (entry.isIntersecting) {
       const card = entry.target;
       const { site, service, user, id } = card.dataset;
-
       observer.unobserve(card);
-
       if (site !== "pawchive" || !service || !user || !id || id.includes("-dm-")) return;
-
       fetch(`${PROXY_URL}/${site}/api/v1/${service}/user/${user}/post/${id}/flag`)
         .then((res) => res.json())
         .then((data) => {
           if (data.flagged) {
             const titleArea = card.querySelector(".post-title");
-
             const badge = document.createElement("span");
             badge.style.cssText = `
               display: inline-flex; align-items: center; gap: 6px; 
@@ -64,7 +60,6 @@ const flagObserver = new IntersectionObserver((entries, observer) => {
               flex-shrink: 0; width: fit-content;
             `;
             badge.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> Not Yet Imported`;
-
             if (titleArea) {
               titleArea.appendChild(badge);
             } else {
@@ -135,7 +130,6 @@ export function syncCarouselClones(item) {
     targetClone.dataset.loaded = "true";
   } else if (archiveCard) {
     if (targetClone.dataset.loaded === "true" && targetClone.querySelector(".ext-archive-card")) return;
-
     const cloneCard = archiveCard.cloneNode(true);
     const viewBtn = cloneCard.querySelector(".zip-action-btn");
     const origViewBtn = archiveCard.querySelector(".zip-action-btn");
@@ -157,7 +151,6 @@ export const mediaObserver = new IntersectionObserver(
     entries.forEach((entry) => {
       if (entry.isIntersecting) {
         const item = entry.target;
-
         if (item.dataset.isClone === "true") {
           const carousel = item.parentElement;
           if (carousel) {
@@ -198,7 +191,6 @@ export const mediaObserver = new IntersectionObserver(
 export function preloadUpcomingMedia(carousel) {
   const preloadCount = window.pawPreloadCount || 0;
   if (preloadCount <= 0) return;
-
   const count = parseInt(carousel.dataset.mediaCount || "0", 10);
   if (count <= 1) return;
 
@@ -206,14 +198,11 @@ export function preloadUpcomingMedia(carousel) {
   if (!step) return;
 
   const rawIndex = Math.round((carousel.scrollLeft - firstOffset) / step) + 1;
-
   for (let i = 1; i <= preloadCount; i++) {
     let targetIndex = rawIndex + i;
-
     if (targetIndex >= carousel.children.length) {
       targetIndex = 1 + ((targetIndex - carousel.children.length) % count);
     }
-
     const item = carousel.children[targetIndex];
     if (item && !item.dataset.loaded) {
       if (
@@ -250,40 +239,34 @@ export function detachMedia(item, force = false) {
     clearTimeout(item._upgradeTimer);
     item._upgradeTimer = null;
   }
-
   if (item._fullImg) {
     item._fullImg.onload = null;
     item._fullImg.onerror = null;
     item._fullImg.src = "";
     item._fullImg = null;
   }
-
   if (item._abortController) {
     try {
       item._abortController.abort();
     } catch (_) {}
     item._abortController = null;
   }
-
   if (item._resetDownload) {
     try {
       item._resetDownload();
     } catch (_) {}
     item._resetDownload = null;
   }
-
   if (item._cleanupGif) {
     try {
       item._cleanupGif();
     } catch (_) {}
     item._cleanupGif = null;
   }
-
   if (item._blobUrl) {
     URL.revokeObjectURL(item._blobUrl);
     item._blobUrl = null;
   }
-
   if (item._videoTimeout) {
     clearTimeout(item._videoTimeout);
     item._videoTimeout = null;
@@ -437,12 +420,9 @@ export async function loadMediaWithProgress(item) {
     infoText.style.fontSize = "0.9rem";
     infoText.style.textAlign = "left";
     infoText.style.boxSizing = "border-box";
-
     infoText.addEventListener("click", (e) => e.stopPropagation());
     infoText.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
-
     infoText.innerHTML = `<div class="zip-info-header" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;position:sticky;left:0;width:100%;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> <span>${escapeHtml(zipFilename)}</span></div><div style="text-align:center;color:#aaa;margin-top:6px;">Scanning contents...</div>`;
-
     container.appendChild(infoText);
 
     const btnRow = document.createElement("div");
@@ -513,7 +493,6 @@ export async function loadMediaWithProgress(item) {
     progressFill.style.transition = "width 0.1s linear";
     progressBar.appendChild(progressFill);
     progressContainer.appendChild(progressBar);
-
     container.appendChild(progressContainer);
     item.appendChild(container);
 
@@ -529,15 +508,11 @@ export async function loadMediaWithProgress(item) {
 
     function resetDownloadState() {
       if (activeReader) {
-        try {
-          activeReader.cancel("Aborted");
-        } catch (_) {}
+        try { activeReader.cancel("Aborted"); } catch (_) {}
         activeReader = null;
       }
       if (abortController) {
-        try {
-          abortController.abort();
-        } catch (_) {}
+        try { abortController.abort(); } catch (_) {}
         abortController = null;
       }
       isPaused = false;
@@ -563,22 +538,19 @@ export async function loadMediaWithProgress(item) {
       if (filenames.length > 0) {
         for (let i = 0; i < filenames.length; i++) {
           const isLast = i === filenames.length - 1;
-          const connector = isLast ? "└── " : "├── ";
+          const connector = isLast ? "└─ " : "├─ ";
           treeLines += `${connector}${filenames[i]}\n`;
         }
       } else {
-        treeLines += "└── (Empty or unreadable archive)\n";
+        treeLines += "  (Empty or unreadable archive)\n";
       }
-
       const fullTree = `${zipFilename}\n${treeLines.trimEnd()}`;
-
       infoText.innerHTML = `<div class="zip-info-header" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;position:sticky;left:0;width:100%;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> <span>${headerInfo}</span></div><div class="zip-info-tree" style="white-space:pre;font-family:monospace;margin:0;padding:0;line-height:1.35;">${escapeHtml(fullTree)}</div>`;
     }
 
     async function scanZip() {
       try {
         if (!window.unzipit) throw new Error("unzipit not loaded");
-
         let entries = null;
         if (typeof window.unzipit.HTTPRangeReader === "function") {
           try {
@@ -589,7 +561,6 @@ export async function loadMediaWithProgress(item) {
             console.warn("unzipit HTTPRangeReader failed, range requests might not be supported", rangeErr);
           }
         }
-
         if (!sizeStr) {
           try {
             const headRes = await fetch(url, { method: "HEAD" });
@@ -597,27 +568,21 @@ export async function loadMediaWithProgress(item) {
               const cl = headRes.headers.get("content-length");
               if (cl) sizeStr = formatBytes(parseInt(cl, 10));
             }
-          } catch (_) {
-            // Origin or proxy may not support HEAD requests; continue to fallback tree/button
-          }
+          } catch (_) {}
         }
-
         if (entries) {
           if (!sizeStr) {
             const compressedTotal = Object.values(entries).reduce((sum, e) => sum + (e.compressedSize || e.size || 0), 0);
             if (compressedTotal > 0) sizeStr = formatBytes(compressedTotal);
           }
-
           filenames = Object.keys(entries)
             .filter((p) => !p.endsWith("/") && !p.startsWith("__MACOSX/"))
             .map((p) => p.split("/").pop());
-
           filenames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
           renderTree();
         } else {
           infoText.innerHTML = `<div class="zip-info-header" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;position:sticky;left:0;width:100%;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"></path></svg> <span>${escapeHtml(sizeStr ? sizeStr + " Archive" : zipFilename)}</span></div><div style="text-align:center;color:#aaa;margin-top:6px;">(Click Download to fetch and view files)</div>`;
         }
-
         if (window.pawAutoDownloadZip) {
           startDownload();
         }
@@ -642,7 +607,6 @@ export async function loadMediaWithProgress(item) {
       progressText.textContent = "Starting download...";
       isPaused = false;
       btnPause.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg> Pause`;
-
       abortController = new AbortController();
       const signal = abortController.signal;
       downloadChunks = [];
@@ -658,42 +622,32 @@ export async function loadMediaWithProgress(item) {
           renderTree();
         }
         activeReader = response.body.getReader();
-
         while (true) {
           if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-
           if (isPaused) {
             await new Promise((resolve) => setTimeout(resolve, 300));
             continue;
           }
-
           const { done, value } = await activeReader.read();
           if (done) break;
-
           downloadChunks.push(value);
           downloadedBytes += value.length;
-
           if (totalSize) {
             progressFill.style.width = Math.min(100, (downloadedBytes / totalSize) * 100) + "%";
-
             const elapsed = (Date.now() - startTime) / 1000;
             const speed = elapsed > 0 ? downloadedBytes / elapsed : 0;
             const remaining = speed > 0 ? (totalSize - downloadedBytes) / speed : 0;
-
             progressText.textContent = `${formatBytes(downloadedBytes)} / ${formatBytes(totalSize)} - ${formatBytes(speed)}/s - ${Math.round(remaining)}s left`;
           } else {
             progressText.textContent = `${formatBytes(downloadedBytes)} downloaded`;
           }
         }
-
         activeReader = null;
         zipBlob = new Blob(downloadChunks);
         downloadChunks = [];
-
         if (!sizeStr) {
           sizeStr = formatBytes(downloadedBytes);
         }
-
         if (filenames.length === 0 && window.unzipit) {
           try {
             const { entries } = await window.unzipit.unzip(zipBlob);
@@ -704,16 +658,13 @@ export async function loadMediaWithProgress(item) {
           } catch (_) {}
         }
         renderTree();
-
         btnPause.style.display = "none";
         btnAbort.style.display = "none";
         btnSave.style.display = "inline-block";
         btnView.style.display = "inline-block";
         progressContainer.style.display = "none";
       } catch (err) {
-        if (err.name === "AbortError" || signal.aborted) {
-          return;
-        }
+        if (err.name === "AbortError" || signal.aborted) return;
         progressText.textContent = "Error downloading.";
         btnDownload.style.display = "inline-block";
         btnPause.style.display = "none";
@@ -725,7 +676,6 @@ export async function loadMediaWithProgress(item) {
       e.stopPropagation();
       startDownload();
     });
-
     btnPause.addEventListener("click", (e) => {
       e.stopPropagation();
       isPaused = !isPaused;
@@ -733,12 +683,10 @@ export async function loadMediaWithProgress(item) {
         ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Resume`
         : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg> Pause`;
     });
-
     btnAbort.addEventListener("click", (e) => {
       e.stopPropagation();
       resetDownloadState();
     });
-
     btnSave.addEventListener("click", (e) => {
       e.stopPropagation();
       if (!zipBlob) return;
@@ -751,13 +699,11 @@ export async function loadMediaWithProgress(item) {
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
     });
-
     btnView.addEventListener("click", (e) => {
       e.stopPropagation();
       if (!zipBlob) return;
       openZipGallery(url, zipFilename, zipBlob, item._post || (item.closest('.post-card') && item.closest('.post-card')._post) || null);
     });
-
     scanZip();
     return;
   }
@@ -780,27 +726,21 @@ export async function loadMediaWithProgress(item) {
       if (progressOverlay) progressOverlay.style.display = "none";
       return;
     }
-
     let totalSize = 0;
-
     const updateVideoProgress = (statusText = "Buffering...") => {
       if (!video.duration || video.buffered.length === 0) return;
-
       let totalBufferedSeconds = 0;
       for (let i = 0; i < video.buffered.length; i++) {
         totalBufferedSeconds += (video.buffered.end(i) - video.buffered.start(i));
       }
-
       const percent = Math.min(100, Math.round((totalBufferedSeconds / video.duration) * 100));
       const loadedBytes = totalSize ? Math.round((percent / 100) * totalSize) : 0;
       const loadedStr = totalSize ? formatBytes(loadedBytes) : `${Math.round(totalBufferedSeconds)}s`;
       const totalStr = totalSize ? formatBytes(totalSize) : `${Math.round(video.duration)}s`;
-
       renderMediaProgress(progressOverlay, statusText, percent, filename, loadedStr, totalStr);
     };
 
     renderMediaProgress(progressOverlay, "Loading...", null, filename, "", "");
-
     const video = document.createElement(type === "video" ? "video" : "audio");
     video.className = "post-media";
     
@@ -823,32 +763,26 @@ export async function loadMediaWithProgress(item) {
       if (progressOverlay) progressOverlay.style.display = "none";
     };
 
-    // 1. Hide overlay when frames actually render and advance
     video.addEventListener("timeupdate", () => {
       if (video.currentTime > 0) {
         hideOverlay();
       }
     });
-
     video.addEventListener("playing", hideOverlay);
     video.addEventListener("canplay", () => {
       hideOverlay();
       syncCarouselClones(item);
     });
-
     video.addEventListener("loadedmetadata", () => {
       updateVideoProgress("Buffering...");
     });
-
     video.addEventListener("progress", () => {
       if (progressOverlay && progressOverlay.style.display !== "none") {
         updateVideoProgress("Buffering...");
       }
     });
-
     video.addEventListener("waiting", () => {
       if (!video.paused && progressOverlay) {
-        // If we already have buffered data past the current time, nudge forward past micro-gaps
         if (video.buffered.length > 0) {
           const firstStart = video.buffered.start(0);
           if (firstStart > video.currentTime && firstStart < 1.0) {
@@ -872,7 +806,6 @@ export async function loadMediaWithProgress(item) {
           thumbImg.className = "post-media";
           thumbImg.loading = "eager";
           thumbImg.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${p}`;
-
           thumbImg.onload = () => {
             if (progressOverlay) progressOverlay.style.display = "none";
             syncCarouselClones(item);
@@ -881,7 +814,6 @@ export async function loadMediaWithProgress(item) {
             if (progressOverlay) progressOverlay.style.display = "flex";
             showMediaUnavailableWarning(progressOverlay, { type, filename, errorStatus: "404", onRetry: triggerRetry });
           };
-
           item.appendChild(thumbImg);
         }
       }, 12000);
@@ -895,7 +827,6 @@ export async function loadMediaWithProgress(item) {
       }
       updateVideoProgress("Buffering...");
     });
-
     video.addEventListener("canplay", () => {
       if (videoTimeout) {
         clearTimeout(videoTimeout);
@@ -904,20 +835,16 @@ export async function loadMediaWithProgress(item) {
       hideOverlay();
       syncCarouselClones(item);
     });
-
     video.addEventListener("error", () => {
       if (videoTimeout) clearTimeout(videoTimeout);
       video.style.display = "none";
       const path = item.dataset.path;
-
-      // Fallback to the proxied thumbnail only if an image thumbnail exists
-      const isImagePath = path && /\.(jpe?g|png|webp|gif)$/i.test(path);
-      if (isImagePath && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+      const isImg = path && /\.(jpe?g|png|webp|gif)$/i.test(path);
+      if (isImg && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
         const thumbImg = document.createElement("img");
         thumbImg.className = "post-media";
         thumbImg.loading = "eager";
         thumbImg.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${path}`;
-
         thumbImg.onload = () => {
           if (progressOverlay) progressOverlay.style.display = "none";
           syncCarouselClones(item);
@@ -926,18 +853,14 @@ export async function loadMediaWithProgress(item) {
           if (progressOverlay) progressOverlay.style.display = "flex";
           showMediaUnavailableWarning(progressOverlay, { type, filename, errorStatus: "404", onRetry: triggerRetry });
         };
-
         item.appendChild(thumbImg);
         return;
       }
-
       if (progressOverlay) progressOverlay.style.display = "flex";
       showMediaUnavailableWarning(progressOverlay, { type, filename, errorStatus: "404", onRetry: triggerRetry });
     });
 
-    // 2. Set src directly on the video element (eliminates <source> deadlocks)
     video.src = url;
-
     item.appendChild(video);
     if (type === "video") {
       attachCustomVideoPlayer(video, item);
@@ -948,7 +871,6 @@ export async function loadMediaWithProgress(item) {
 
   const img = document.createElement("img");
   img.className = "post-media";
-  
   const isFirstCard = item.closest('.post-card') === feed.firstElementChild;
   if (isFirstCard) {
     img.loading = "eager";
@@ -961,17 +883,12 @@ export async function loadMediaWithProgress(item) {
   const path = item.dataset.path;
   const isImageSite = state.currentSite === "kemono" || state.currentSite === "pawchive";
   const isImageFile = path && /\.(jpe?g|png|webp|gif)$/i.test(path);
-
-  if (isImageSite && isImageFile) {
-    // Progressive Loading: Load edge-cached high-quality thumbnail immediately (<300ms)
+  if (isImageSite && isImageFile && !path.startsWith("http://") && !path.startsWith("https://")) {
     const thumbUrl = `${PROXY_URL}/${state.currentSite}/thumbnail/data${path}`;
     img.src = thumbUrl;
-
     img.onload = () => {
       if (progressOverlay) progressOverlay.style.display = "none";
       syncCarouselClones(item);
-
-      // Attempt to upgrade to full-res file only if user pauses on the card (prevent network stampede)
       if (url && url !== thumbUrl) {
         if (item._upgradeTimer) clearTimeout(item._upgradeTimer);
         item._upgradeTimer = setTimeout(() => {
@@ -991,7 +908,6 @@ export async function loadMediaWithProgress(item) {
         }, 1200);
       }
     };
-
     img.onerror = () => {
       if (url && img.src !== url) {
         img.src = url;
@@ -1007,21 +923,17 @@ export async function loadMediaWithProgress(item) {
     };
   } else {
     img.src = url;
-
     img.onload = () => {
       if (progressOverlay) progressOverlay.style.display = "none";
       syncCarouselClones(item);
     };
-
     img.onerror = () => {
       const p = item.dataset.path;
-      // If the full-res file fails or is blocked, try the thumbnail through the worker proxy
-      if (p && /\.(jpe?g|png|webp|gif)$/i.test(p) && !img.dataset.triedThumb && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+      if (p && /\.(jpe?g|png|webp|gif)$/i.test(p) && !img.dataset.triedThumb && !p.startsWith("http") && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
         img.dataset.triedThumb = "true";
         img.src = `${PROXY_URL}/${state.currentSite}/thumbnail/data${p}`;
         return;
       }
-
       img.style.display = "none";
       showMediaUnavailableWarning(progressOverlay, {
         type,
@@ -1031,7 +943,6 @@ export async function loadMediaWithProgress(item) {
       });
     };
   }
-
   item.appendChild(img);
 }
 
@@ -1043,7 +954,6 @@ export function attachMedia(item, blob, type) {
   }
   const objUrl = URL.createObjectURL(blob);
   item._blobUrl = objUrl;
-
   if (type === "video" || type === "audio") {
     const video = document.createElement(type === "video" ? "video" : "audio");
     video.className = "post-media";
@@ -1079,12 +989,10 @@ export function smoothScroll(element, targetLeft, duration = 140, onComplete = n
     if (onComplete) onComplete();
     return;
   }
-
   if (element._animId) {
     cancelAnimationFrame(element._animId);
     element._animId = null;
   }
-
   element.style.scrollSnapType = "none";
   const startLeft = element.scrollLeft;
   const distance = targetLeft - startLeft;
@@ -1094,7 +1002,6 @@ export function smoothScroll(element, targetLeft, duration = 140, onComplete = n
     if (onComplete) onComplete();
     return;
   }
-
   const startTime = performance.now();
   const easeOut = (t) => t * (2 - t);
 
@@ -1102,9 +1009,7 @@ export function smoothScroll(element, targetLeft, duration = 140, onComplete = n
     const elapsed = now - startTime;
     const progress = Math.min(elapsed / duration, 1);
     const easedProgress = easeOut(progress);
-
     element.scrollLeft = startLeft + distance * easedProgress;
-
     if (progress < 1) {
       element._animId = requestAnimationFrame(step);
     } else {
@@ -1119,7 +1024,6 @@ export function smoothScroll(element, targetLeft, duration = 140, onComplete = n
       });
     }
   }
-
   element._animId = requestAnimationFrame(step);
 }
 
@@ -1167,7 +1071,6 @@ export function handleCarouselScrollSettled(container, count) {
     container._restingScrollLeft = container.scrollLeft;
   }
 
-  // Autoplay active slide's GIF, pause other slides' GIFs
   const finalIdx = curIdx <= 0 ? count : (curIdx >= count + 1 ? 1 : curIdx);
   const activeChild = container.children[finalIdx];
   if (activeChild) {
@@ -1343,6 +1246,7 @@ export function renderPostInfoSection(post, authorEl, titleEl, contentEl) {
         serviceIcon.style.height = "18px";
         serviceIcon.style.marginBottom = iconMarginBottom;
       }
+
       serviceIcon.title = post.service;
       serviceIcon.onerror = () => {
         serviceIcon.style.display = "none";
@@ -1367,7 +1271,6 @@ export function renderPostInfoSection(post, authorEl, titleEl, contentEl) {
   if (titleEl) {
     titleEl.innerHTML = "";
     titleEl.style.display = "flex";
-
     const postUrl = getServicePostUrl(post.service, post.user, post.id);
     const titleLink = document.createElement("a");
     titleLink.className = "post-title-link";
@@ -1390,8 +1293,19 @@ export function renderPostInfoSection(post, authorEl, titleEl, contentEl) {
       cleanContent = cleanContent.replace(/<a /gi, '<a target="_blank" rel="noopener noreferrer" ');
       cleanContent = cleanContent.replace(/(<br\s*\/?>[\s\u200B-\u200D\uFEFF]*){3,}/gi, '<br><br>');
       cleanContent = cleanContent.replace(/^(\s*<br\s*\/?>)+/gi, '').replace(/(<br\s*\/?>\s*)+$/gi, '');
-      contentEl.innerHTML = cleanContent;
-      cleanEmptyParagraphs(contentEl);
+
+      const tmpl = document.createElement("template");
+      tmpl.innerHTML = cleanContent;
+
+      tmpl.content.querySelectorAll("[src]").forEach((el) => {
+        const src = el.getAttribute("src");
+        if (src && !src.startsWith("data:") && !src.startsWith("blob:") && !src.startsWith("#")) {
+          el.setAttribute("src", getMediaUrl(src));
+        }
+      });
+
+      cleanEmptyParagraphs(tmpl.content);
+      contentEl.innerHTML = tmpl.innerHTML;
 
       const hasText = !!contentEl.textContent.replace(/[\s\u200B-\u200D\uFEFF]+/g, "");
       const hasMedia = !!contentEl.querySelector("img, video, audio, iframe, embed, object, svg, canvas");
@@ -1477,9 +1391,11 @@ export function createPostCard(post) {
   let cleanContent = post.content || post.substring || "";
   if (cleanContent) {
     cleanContent = cleanContent.replace(/(href|src)=["']file:[^"']*["']/gi, '$1="#"');
-    const tmp = document.createElement("div");
-    tmp.innerHTML = cleanContent;
-    const inlineImgs = tmp.querySelectorAll("img");
+
+    const tmpl = document.createElement("template");
+    tmpl.innerHTML = cleanContent;
+
+    const inlineImgs = tmpl.content.querySelectorAll("img");
     inlineImgs.forEach((img) => {
       const src = img.getAttribute("src");
       if (src && !src.toLowerCase().startsWith("file:") && !allMedia.some((m) => m.path === src)) {
@@ -1496,8 +1412,16 @@ export function createPostCard(post) {
       }
       img.remove();
     });
-    cleanEmptyParagraphs(tmp);
-    cleanContent = tmp.innerHTML;
+
+    tmpl.content.querySelectorAll("[src]").forEach((el) => {
+      const src = el.getAttribute("src");
+      if (src && !src.startsWith("data:") && !src.startsWith("blob:") && !src.startsWith("#")) {
+        el.setAttribute("src", getMediaUrl(src));
+      }
+    });
+
+    cleanEmptyParagraphs(tmpl.content);
+    cleanContent = tmpl.innerHTML;
   }
   post._cleanContent = cleanContent;
 
@@ -1588,7 +1512,6 @@ export function createPostCard(post) {
   title.className = "post-title";
   const content = document.createElement("div");
   content.className = "post-content";
-
   renderPostInfoSection(post, author, title, content);
 
   if (allMedia.length === 0) {
@@ -1604,7 +1527,6 @@ export function createPostCard(post) {
   } else {
     const carousel = document.createElement("div");
     carousel.className = "media-carousel";
-
     carousel.addEventListener(
       "wheel",
       (e) => {
@@ -1638,6 +1560,7 @@ export function createPostCard(post) {
         const isVideo = ["mp4", "webm", "mov"].includes(ext);
         const isAudio = ["mp3", "ogg", "wav", "m4a"].includes(ext);
         const isGif = ext === "gif";
+
         item.dataset.url = getMediaUrl(mediaPath);
         item.dataset.path = mediaPath;
         item.dataset.isUnimported = mediaObj.isUnimported ? "true" : "false";
@@ -1663,13 +1586,10 @@ export function createPostCard(post) {
       const lastChild = carousel.children[carousel.children.length - 1];
       const cloneFirst = firstChild.cloneNode(true);
       const cloneLast = lastChild.cloneNode(true);
-
       cloneFirst.dataset.isClone = "true";
       cloneLast.dataset.isClone = "true";
-
       carousel.insertBefore(cloneLast, firstChild);
       carousel.appendChild(cloneFirst);
-
       mediaObserver.observe(cloneLast);
       mediaObserver.observe(cloneFirst);
     }
@@ -1702,6 +1622,7 @@ export function createPostCard(post) {
       }
       carousel._restingScrollLeft = carousel.scrollLeft;
     });
+
     card.appendChild(indicator);
 
     let scrollSettleTimer;
@@ -1742,7 +1663,6 @@ export function createPostCard(post) {
         const rawIndex = Math.round((carousel.scrollLeft - firstOffset) / step) + 1;
         const realIndex = ((rawIndex - 1) % count + count) % count;
         indicator.textContent = `${realIndex + 1} / ${count}`;
-
         if (!carousel._animId && !carousel._isTouching) {
           clearTimeout(scrollSettleTimer);
           scrollSettleTimer = setTimeout(() => {
@@ -1797,11 +1717,13 @@ export function createPostCard(post) {
     if (e.target.tagName.toLowerCase() === "a" || e.target.closest("a")) return;
     if (e.target.tagName.toLowerCase() === "button" || e.target.closest("button")) return;
     if (e.target.closest(".zip-info-text")) return;
+
     const edgeCfg = window.pawEdgeConfig || { top: 0.05, bottom: 0.05, left: 0.05, right: 0.05 };
     const x = e.clientX;
     const y = e.clientY;
     const w = window.innerWidth;
     const h = window.innerHeight;
+
     const isEdgeClick =
       y < h * (edgeCfg.top ?? 0.05) ||
       y > h * (1 - (edgeCfg.bottom ?? 0.05)) ||
@@ -1821,7 +1743,6 @@ export function createPostCard(post) {
     const navEl = document.getElementById("nav");
     const isNavCurrentlyVisible = navEl && navEl.classList.contains("visible");
 
-    // If nav buttons are currently visible, tapping anywhere on the post hides them!
     if (isNavCurrentlyVisible) {
       state.navManualVisible = false;
       window.lastMouseY = -1;
@@ -1839,8 +1760,6 @@ export function createPostCard(post) {
     const topThreshold = h * (edgeCfg.top ?? 0.05);
     const bottomThreshold = h * (1 - (edgeCfg.bottom ?? 0.05));
 
-    // Edge tap navigation (only when nav buttons are hidden):
-    // When there are 2 or more files, left and right edges have priority on the corners
     const carousel = card.querySelector(".media-carousel");
     if (carousel && allMedia.length > 1) {
       if (x < leftThreshold) {
@@ -1865,6 +1784,7 @@ export function createPostCard(post) {
       feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? "auto" : "smooth" });
       return;
     }
+
     if (y > bottomThreshold) {
       let target =
         feed.dataset.targetScroll !== undefined
@@ -1941,14 +1861,12 @@ export function getFeedLoadingDescription() {
       fansly: "Fansly",
     };
     const formattedService = serviceNames[service.toLowerCase()] || (service.charAt(0).toUpperCase() + service.slice(1));
-
     let creatorName = state.currentFeedCreatorName;
     if (!creatorName && state.allCreators && state.allCreators.length > 0) {
       const found = state.allCreators.find((c) => c.id === userId && (c.service === service || !c.service));
       if (found && found.name) creatorName = found.name;
     }
     if (!creatorName) creatorName = userId;
-
     target = ` by ${creatorName} (${formattedService})`;
   } else {
     const site = state.currentSite ? (state.currentSite.charAt(0).toUpperCase() + state.currentSite.slice(1)) : "Feed";
@@ -1989,6 +1907,7 @@ export async function fetchPosts() {
     const url = isSinglePageFeed
       ? state.currentFeedEndpoint
       : `${state.currentFeedEndpoint}${separator}o=${state.offset}`;
+
     let res;
     for (let attempt = 0; attempt < 2; attempt++) {
       const controller = new AbortController();
@@ -2014,20 +1933,20 @@ export async function fetchPosts() {
         throw e;
       }
     }
+
     if (!res || !res.ok) throw new Error("Failed to fetch: " + (res ? `${res.status} ${res.statusText}` : "timeout"));
+
     let posts = await res.json();
     if (!Array.isArray(posts)) {
       posts = posts.posts || posts.announcements || posts.dms || posts.fancards || [];
     }
 
     if (isSinglePageFeed) state.hasMore = false;
-
     if (!Array.isArray(posts) || posts.length === 0) {
       state.hasMore = false;
     } else {
       const catName = isAnnouncements ? "announcements" : isFancards ? "fancards" : "posts";
       updateFeedLoading(`Rendering ${posts.length} ${catName}...`);
-
       const currentCards = feed.querySelectorAll(".post-card");
       if (currentCards.length > 0) {
         feedObserver.unobserve(currentCards[currentCards.length - 1]);
@@ -2043,125 +1962,31 @@ export async function fetchPosts() {
           }
         }
         if (!post.user && post.user_id) post.user = post.user_id;
-
         if (post.hash && post.ext && !post.file && !post.attachments) {
-          const path = `/${post.hash.slice(0, 2)}/${post.hash.slice(2, 4)}/${post.hash}${post.ext}`;
           post.file = {
-            name: `fancard${post.ext}`,
-            path: path,
+            name: `${post.hash}.${post.ext}`,
+            path: `/${post.hash.substring(0, 2)}/${post.hash.substring(2, 4)}/${post.hash}.${post.ext}`
           };
-          if (post.price && !post.content) {
-            post.content = `<p>Price: ¥${post.price}</p>`;
-          }
-          if (post.added && !post.published) {
-            post.published = post.added;
-          }
         }
-
-        if ((isAnnouncements || isFancards) && !post.title) {
-          const rawDate = post.added || post.published || post.publishedAt || post.createdAt;
-          let formattedDate = "";
-          if (rawDate) {
-            const timestamp = typeof rawDate === "number" && rawDate < 1e11 ? rawDate * 1000 : rawDate;
-            const d = new Date(timestamp);
-            if (!isNaN(d.getTime())) {
-              formattedDate = d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-            }
-          }
-
-          if (isAnnouncements) {
-            post.title = formattedDate || "Announcement";
-          } else if (isFancards) {
-            const priceTag = post.price ? ` (¥${post.price})` : "";
-            post.title = formattedDate ? `Fancard${priceTag} — ${formattedDate}` : `Fancard${priceTag}`;
-          }
-        }
-
-        if (state.currentSite === "cum") {
-          post.user = post.user || post.creatorId;
-          if (!post.user) {
-            const match = state.currentFeedEndpoint.match(/\/user\/([^\/]+)/);
-            if (match) post.user = match[1];
-          }
-          post.authorName = post.creatorName;
-          post.content = post.captionHtml || post.contentHtml || post.caption || post.content || "";
-          if (!post.title && post.content) {
-            const tmp = document.createElement("div");
-            tmp.innerHTML = post.content;
-            let firstNode = null;
-            for (const node of tmp.childNodes) {
-              const text = (node.textContent || "").trim();
-              if (text) {
-                firstNode = node;
-                break;
-              }
-            }
-            if (firstNode) {
-              post.title = firstNode.innerHTML || (firstNode.textContent || "").trim();
-              firstNode.remove();
-              cleanEmptyParagraphs(tmp);
-              post.content = tmp.innerHTML.trim();
-            }
-          }
-          if (post.attachments && post.attachments.length > 0) {
-            if (!post.file) {
-              const first = post.attachments[0];
-              if (first.storageKey && first.variants && first.variants.length > 0) {
-                post.file = { path: `/media/${first.storageKey}/${first.variants[0].name}` };
-              } else {
-                let ext = "jpg";
-                if (first.mimeType) ext = first.mimeType.split("/").pop().toLowerCase().replace("jpeg", "jpg");
-                else if (first.kind === "video") ext = "mp4";
-                post.file = { path: `/unimported.${ext}`, isUnimported: true };
-              }
-            }
-
-            post.attachments = post.attachments.map((att) => {
-              if (att.storageKey && att.variants && att.variants.length > 0) {
-                return { path: `/media/${att.storageKey}/${att.variants[0].name}`, name: att.name || att.storageKey };
-              } else {
-                let ext = "jpg";
-                if (att.mimeType) ext = att.mimeType.split("/").pop().toLowerCase().replace("jpeg", "jpg");
-                else if (att.kind === "video") ext = "mp4";
-                return { path: `/unimported.${ext}`, name: `unimported.${ext}`, isUnimported: true };
-              }
-            });
-          }
-        }
-
         const card = createPostCard(post);
         if (card) {
-          card.dataset.site = state.currentSite;
-          card.dataset.service = post.service;
-          card.dataset.user = post.user;
-          card.dataset.id = post.id;
-
-          flagObserver.observe(card);
-
           feed.appendChild(card);
           addedCount++;
         }
       });
 
       state.offset += posts.length;
-
-      const newCards = feed.querySelectorAll(".post-card");
-      if (newCards.length > 0) {
-        feedObserver.observe(newCards[newCards.length - 1]);
+      const cards = feed.querySelectorAll(".post-card");
+      if (cards.length > 0) {
+        feedObserver.observe(cards[cards.length - 1]);
       }
-      if (addedCount === 0 && state.hasMore) {
-        updateFeedLoading("Filtering posts, loading next batch...");
-        setTimeout(() => fetchPosts(), 50);
+      if (addedCount === 0 && posts.length > 0) {
+        fetchPosts();
       }
     }
-  } catch (error) {
-    if (error.message.includes("404")) {
-      if (state.offset === 0 && feed) {
-        feed.innerHTML = '<div style="text-align:center; padding: 40px; color: #aaa;">No items found.</div>';
-      }
-    } else {
-      console.error("Error fetching posts:", error);
-    }
+  } catch (err) {
+    console.error("fetchPosts failure:", err);
+    updateFeedLoading("Failed to load posts.");
   } finally {
     state.isFetching = false;
     if (feedLoading) feedLoading.classList.remove("active");

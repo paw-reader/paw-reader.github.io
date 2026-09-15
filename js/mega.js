@@ -120,7 +120,6 @@ export async function decryptAllMegaNodes(nodes, rootFolderKeyBytes) {
     return c;
   }
 
-  // 1. Index nodes by handle and by parent handle
   const childrenByParent = new Map();
   const allNodesByHandle = new Map();
 
@@ -135,10 +134,6 @@ export async function decryptAllMegaNodes(nodes, rootFolderKeyBytes) {
   }
 
   let lastYield = performance.now();
-
-  // 2. High-speed O(N) BFS Cascade:
-  // Queue contains { parentHandle: string, key: Uint8Array, cipher: any }
-  // Root items are those whose parent is empty or not in allNodesByHandle
   const bfsQueue = [];
 
   for (const [parentHandle] of childrenByParent.entries()) {
@@ -188,7 +183,6 @@ export async function decryptAllMegaNodes(nodes, rootFolderKeyBytes) {
     }
   }
 
-  // 3. Fallback pass: for any non-standard/orphaned nodes not reached via BFS
   if (decryptedNodes.size < allNodesByHandle.size) {
     let changed = true;
     let passes = 0;
@@ -368,15 +362,9 @@ function decryptMegaInWorker(dlUrl, proxyUrl, rawNodeKey, totalBytes, onProgress
       }
 
       self.onmessage = async function(e) {
-        const { dlUrl, proxyUrl, rawKeyBytes, totalBytes } = e.data;
+        const { proxyUrl, rawKeyBytes, totalBytes } = e.data;
         try {
-          let res;
-          try {
-            res = await fetch(dlUrl);
-            if (!res.ok) throw new Error("Direct download failed");
-          } catch (_) {
-            res = await fetch(proxyUrl);
-          }
+          const res = await fetch(proxyUrl);
           if (!res.ok) throw new Error("Download failed: HTTP " + res.status);
 
           const rawNodeKey = new Uint8Array(rawKeyBytes);
@@ -854,9 +842,6 @@ export async function handleMegaFolderEmbed(item, parsed, progressOverlay, postT
   }
 }
 
-/**
- * Handles embedding a Mega link inside a post card.
- */
 export function handleMegaFileCard(item, url, postTitle, filename, progressOverlay, signal) {
   const parsed = parseMegaUrl(url);
   if (!parsed) {
@@ -1005,7 +990,7 @@ export async function openMegaGallery(megaUrl, galleryTitle, post = null) {
       const treeRes = formatMegaFileTree(decryptedNodes);
       headerName = treeRes.headerName;
     }
-    // Reconstruct folder paths for all files
+
     const pathMap = new Map();
     function getNodePath(nodeHandle) {
       if (pathMap.has(nodeHandle)) return pathMap.get(nodeHandle);
@@ -1076,7 +1061,6 @@ export async function openMegaGallery(megaUrl, galleryTitle, post = null) {
 
     render2DMatrixGallery(folderGroups, { galleryTitle: headerName || galleryTitle, signal });
 
-    // Prefetch download URLs in batches for starting and adjacent folders
     if (folderNames.length > 0) {
       const firstFiles = folderMap.get(folderNames[0]);
       if (firstFiles && firstFiles.length > 0) {
@@ -1090,7 +1074,6 @@ export async function openMegaGallery(megaUrl, galleryTitle, post = null) {
       }
     }
 
-    // Attach row-level prefetcher on vertical navigation
     if (zipContent && folderNames.length > 1) {
       let lastPrefetchedRowIdx = 0;
       let rowPrefetchTimer = null;
@@ -1154,7 +1137,6 @@ async function handleSingleMegaFile(parsed, title, signal) {
   if (progressText) renderArchiveProgress(progressText, "Fetching file info...", null, title || "Mega File");
 
   const rawKey = base64urlToBytes(parsed.key);
-
   const data = await megaApiRequest(`id=${Date.now()}`, [{ a: "g", g: 1, ssl: 2, p: parsed.id }], signal);
 
   const megaErrCode = Array.isArray(data) ? data[0] : data;
@@ -1253,9 +1235,11 @@ async function handleSingleMegaFile(parsed, title, signal) {
   if (zipContent) zipContent.appendChild(container);
 }
 
-
 async function loadAndDisplayMegaItem(container, file, folderId, cachedBlobs, signal) {
   if (!file || container.dataset.loading === "true") return;
+
+  const isVideo = ["mp4", "webm"].includes((file.name || "").split(".").pop().toLowerCase());
+
   container.dataset.fileId = file.node.h;
   container.dataset.loading = "true";
 
@@ -1329,8 +1313,6 @@ async function loadAndDisplayMegaItem(container, file, folderId, cachedBlobs, si
     container.dataset.loaded = "true";
     container.dataset.loading = "false";
     if (overlay) overlay.style.display = "none";
-
-    const isVideo = ["mp4", "webm"].includes(file.name.split(".").pop().toLowerCase());
 
     const matched = zipContent ? Array.from(zipContent.querySelectorAll(`[data-file-id="${file.node.h}"]`)) : [];
     if (!matched.includes(container)) matched.push(container);

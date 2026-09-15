@@ -15,6 +15,7 @@ export const settingsMenu = document.getElementById("settings-menu");
 export const siteSelector = document.getElementById("site-selector");
 
 let navLastVisibleTime = 0;
+let navTabsSeq = 0;
 
 export function isNavInteractive() {
   if (!nav) return false;
@@ -39,9 +40,11 @@ export function updateNavVisibility(mouseY = window.lastMouseY) {
   const anyInfoExpanded = !!document.querySelector(".post-info.expanded");
   const dropdownOpen =
     !!document.getElementById("linked-accounts-dropdown") || !!document.getElementById("cum-posts-dropdown");
+  const settingsOpen = settingsMenu && settingsMenu.classList.contains("active");
   const isMobile = window.innerWidth <= 768 || window.innerHeight <= 500;
   const inNavZone = !isMobile && mouseY >= 0 && mouseY < 80;
-  const isVisible = anyInfoExpanded || dropdownOpen || inNavZone || state.navManualVisible;
+  const isVisible = anyInfoExpanded || dropdownOpen || settingsOpen || inNavZone || state.navManualVisible;
+
   if (isVisible) {
     if (!nav.classList.contains("visible")) {
       navLastVisibleTime = Date.now();
@@ -137,6 +140,7 @@ export function updateSiteSpecificUI() {
 }
 
 export function updateNavTabs(creator) {
+  const currentSeq = ++navTabsSeq;
   const navTabs = document.getElementById("nav-tabs");
   if (!navTabs) return;
   navTabs.innerHTML = "";
@@ -459,8 +463,8 @@ export function updateNavTabs(creator) {
           if (similarCreators && similarCreators.length > 0) {
             const grid = document.createElement("div");
             grid.className = "creators-grid";
-            const isMobile = window.innerWidth <= 600 || window.innerHeight <= 500;
-            const pad = isMobile ? "120px 20px 60px 20px" : "80px 20px 60px 20px";
+            const isMob = window.innerWidth <= 600 || window.innerHeight <= 500;
+            const pad = isMob ? "120px 20px 60px 20px" : "80px 20px 60px 20px";
             grid.style.cssText = `padding: ${pad}; width: 100%; box-sizing: border-box;`;
             similarCreators.forEach((c) => {
               c.allPlatforms = [c];
@@ -657,8 +661,9 @@ export function updateNavTabs(creator) {
     ) {
       const srv = (creator.service || "").toLowerCase();
 
-      // Defer background tab checks by 350ms so fetchPosts() gets network priority
       setTimeout(() => {
+        if (currentSeq !== navTabsSeq) return;
+
         if (tab === "Linked Accounts") {
           const cacheKey = `_linksFetched`;
           if (creator[cacheKey] !== undefined) {
@@ -674,6 +679,7 @@ export function updateNavTabs(creator) {
               .then((res) => (res.ok ? res.json() : []))
               .then((arr) => {
                 clearTimeout(timeoutId);
+                if (currentSeq !== navTabsSeq) return;
                 if (Array.isArray(arr) && arr.length > 0) {
                   creator.allPlatforms = creator.allPlatforms || [{ id: creator.id, service: creator.service, name: creator.name }];
                   
@@ -693,12 +699,12 @@ export function updateNavTabs(creator) {
               })
               .catch(() => {
                 clearTimeout(timeoutId);
+                if (currentSeq !== navTabsSeq) return;
                 creator[cacheKey] = true;
                 btn.style.display = creator.allPlatforms && creator.allPlatforms.length > 1 ? "flex" : "none";
               });
           }
         } else {
-          // Enforce platform support before querying
           if (tab === "DMs" && srv !== "patreon") {
             btn.style.display = "none";
             return;
@@ -721,46 +727,37 @@ export function updateNavTabs(creator) {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-            if (state.currentSite === "pawchive" && tab === "DMs") {
-              fetch(`${PROXY_URL}/pawchive/${creator.service}/user/${creator.id}/dms`, { signal: controller.signal })
-                .then((res) => {
-                  if (!res.ok) throw new Error("No DMs found or blocked");
-                  return res.text();
-                })
-                .then((html) => {
-                  clearTimeout(timeoutId);
-                  if (html.includes("<article") || html.includes("post-card") || html.includes("dm-card")) {
-                    btn.style.display = "";
-                    creator[cacheKey] = true;
-                  } else {
-                    creator[cacheKey] = false;
-                  }
-                })
-                .catch(() => {
-                  clearTimeout(timeoutId);
-                  creator[cacheKey] = false;
-                });
-            } else {
-              fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}?limit=1`, {
-                signal: controller.signal,
-                headers: { Accept: "text/css" }
+            fetch(`${PROXY_URL}/${state.currentSite}/api/v1/${creator.service}/user/${creator.id}/${tab.toLowerCase()}?limit=1`, {
+              signal: controller.signal,
+              headers: { Accept: "text/css" }
+            })
+              .then(async (res) => {
+                if (!res.ok) throw new Error("Check failed");
+                const contentType = res.headers.get("content-type") || "";
+                if (contentType.includes("application/json")) {
+                  return res.json();
+                }
+                const text = await res.text();
+                return text.includes("<article") || text.includes("post-card") || text.includes("dm-card") ? [1] : [];
               })
-                .then((res) => (res.ok ? res.json() : []))
-                .then((data) => {
-                  clearTimeout(timeoutId);
-                  const arr = data.posts || data.announcements || data.dms || data.fancards || (data.tags || (Array.isArray(data) ? data : []));
-                  if (arr.length > 0) {
-                    btn.style.display = "";
-                    creator[cacheKey] = true;
-                  } else {
-                    creator[cacheKey] = false;
-                  }
-                })
-                .catch(() => {
-                  clearTimeout(timeoutId);
+              .then((data) => {
+                clearTimeout(timeoutId);
+                if (currentSeq !== navTabsSeq) return;
+                const arr = Array.isArray(data)
+                  ? data
+                  : (data.posts || data.announcements || data.dms || data.fancards || data.tags || []);
+                if (arr.length > 0) {
+                  btn.style.display = "";
+                  creator[cacheKey] = true;
+                } else {
                   creator[cacheKey] = false;
-                });
-            }
+                }
+              })
+              .catch(() => {
+                clearTimeout(timeoutId);
+                if (currentSeq !== navTabsSeq) return;
+                creator[cacheKey] = false;
+              });
           }
         }
       }, 350);
@@ -771,6 +768,7 @@ export function updateNavTabs(creator) {
 }
 
 export function wrapCarousel(carousel, direction) {
+  if (!carousel) return;
   let target = 0;
   if (direction === "end") {
     target = carousel.scrollWidth - carousel.clientWidth;
@@ -779,6 +777,9 @@ export function wrapCarousel(carousel, direction) {
   carousel.dataset.scrollDir = direction === "end" ? "left" : "right";
   carousel.style.scrollSnapType = "none";
   carousel.scrollTo({ left: target, behavior: "auto" });
+  requestAnimationFrame(() => {
+    carousel.style.scrollSnapType = "";
+  });
 }
 
 export function showView(viewElement, showNav = true) {

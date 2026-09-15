@@ -15,47 +15,56 @@ export function initGestures() {
   let resizeTimer = null;
 
   window.addEventListener("resize", () => {
+    // Handle ZIP 2D Matrix Carousel resize realignment
+    if (zipViewer && !zipViewer.classList.contains("hidden") && zipContent) {
+      const rows = zipContent.querySelectorAll(".zip-folder-row");
+      const winW = window.innerWidth;
+      rows.forEach((row) => {
+        const count = parseInt(row.dataset.mediaCount || "0", 10);
+        if (count > 1) {
+          const itemWidth = row.clientWidth || winW;
+          const targetIndex = row._targetIndex !== undefined ? row._targetIndex : 1;
+          row.scrollTo({ left: targetIndex * itemWidth, behavior: "auto" });
+        }
+      });
+    }
+
     if (!feed || !feedView || !feedView.classList.contains("active") || !feed.querySelector(".post-card")) return;
     
     isResizing = true;
     feed.style.scrollSnapType = "none"; 
     
-    // FIX 1: Instantly snap the vertical feed before the screen paints the new layout
     const h = window.innerHeight;
     feed.scrollTo({ top: activeCardIndex * h, behavior: "auto" });
 
     const carousels = feed.querySelectorAll(".media-carousel");
-    // Pass 1: Set snap to none
-    carousels.forEach(c => {
+    carousels.forEach((c) => {
       c.style.scrollSnapType = "none";
       if (!c.dataset.rawIndex) {
-        c.dataset.rawIndex = c.children.length > 1 ? "1" : "0";
+        c.dataset.rawIndex = c.children.length > 2 ? "1" : "0";
       }
     });
 
-    // Pass 2: Batch geometry reads
     const winW = window.innerWidth;
     const offsets = [];
-    carousels.forEach(c => {
+    carousels.forEach((c) => {
       const targetIndex = parseInt(c.dataset.rawIndex, 10) || 0;
       const targetX = c.children[targetIndex] ? c.children[targetIndex].offsetLeft : targetIndex * (c.clientWidth || winW);
       offsets.push(targetX);
     });
 
-    // Pass 3: Batch scroll writes
     carousels.forEach((c, i) => {
       c.scrollTo({ left: offsets[i], behavior: "auto" });
     });
     
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      // Safety pass: Mobile browsers often change dimensions a second time as the URL bar hides/shows
       const finalH = window.innerHeight;
       feed.scrollTo({ top: activeCardIndex * finalH, behavior: "auto" });
       
       const finalWinW = window.innerWidth;
       const finalOffsets = [];
-      carousels.forEach(c => {
+      carousels.forEach((c) => {
         const targetIndex = parseInt(c.dataset.rawIndex, 10) || 0;
         const targetX = c.children[targetIndex] ? c.children[targetIndex].offsetLeft : targetIndex * (c.clientWidth || finalWinW);
         finalOffsets.push(targetX);
@@ -117,10 +126,17 @@ export function initGestures() {
   );
 
   document.addEventListener("keydown", (e) => {
-    if (e.target.tagName.toLowerCase() === "input") return;
+    const tag = e.target.tagName ? e.target.tagName.toLowerCase() : "";
+    if (tag === "input" || tag === "textarea" || tag === "select" || e.target.isContentEditable) return;
 
     if (e.key === "Escape") {
       e.preventDefault();
+
+      const settingsMenu = document.getElementById("settings-menu");
+      if (settingsMenu && settingsMenu.classList.contains("active")) {
+        settingsMenu.classList.remove("active");
+        return;
+      }
 
       if (zipViewer && !zipViewer.classList.contains("hidden")) {
         const modal = document.getElementById("zip-file-info-modal");
@@ -129,6 +145,12 @@ export function initGestures() {
           return;
         }
         closeZipGallery();
+        return;
+      }
+
+      const expandedInfo = document.querySelector(".post-info.expanded");
+      if (expandedInfo) {
+        closeAllPostInfo();
         return;
       }
 
@@ -274,9 +296,6 @@ export function initGestures() {
       return true;
     }
 
-    // Inside feed, only hijack gestures when feed is displaying post-cards
-    // and the touch/wheel target is within a post-card. On Tags, Similar Artists,
-    // Linked Accounts, or placeholders, preserve native scrolling.
     if (e.target.closest("#feed")) {
       if (!feed || !feed.querySelector(".post-card") || !e.target.closest(".post-card")) {
         return true;

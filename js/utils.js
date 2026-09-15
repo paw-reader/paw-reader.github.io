@@ -12,7 +12,6 @@ export function escapeHtml(str) {
 export function showMediaUnavailableWarning(container, optionsOrType = "media", filename = "", errorStatus = "404", onRetry = null) {
   if (!container) return;
   container.style.display = "flex";
-
   let type = "media";
   let file = "";
   let status = "404";
@@ -24,10 +23,8 @@ export function showMediaUnavailableWarning(container, optionsOrType = "media", 
     file = optionsOrType.filename || "";
     retryFn = optionsOrType.onRetry || null;
     externalUrl = optionsOrType.externalUrl || "";
-
     const rawMsg = optionsOrType.message || (optionsOrType.error && optionsOrType.error.message) || "";
     const msgMatch = String(rawMsg).match(/HTTP\s+(\d{3})/i) || String(rawMsg).match(/status\s+(\d{3})/i);
-
     if (optionsOrType.error && optionsOrType.error.status) {
       status = String(optionsOrType.error.status);
     } else if (msgMatch) {
@@ -60,7 +57,6 @@ export function showMediaUnavailableWarning(container, optionsOrType = "media", 
   container.classList.remove("media-loading");
   container.classList.add("media-error");
   container.style.pointerEvents = "auto";
-
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; gap: 8px; padding: 20px; text-align: center; background: rgba(0,0,0,0.6); border-radius: 12px; box-sizing: border-box; pointer-events: auto;">
       <span style="color: #ff5555; font-size: 2.2rem; font-weight: 800; font-family: monospace; letter-spacing: 1px; line-height: 1;">${escapeHtml(String(status))}</span>
@@ -94,39 +90,17 @@ export function showMediaUnavailableWarning(container, optionsOrType = "media", 
         e.stopPropagation();
         retryFn();
       });
-      btn.addEventListener("pointerdown", (e) => {
-        e.stopPropagation();
-      });
-      btn.addEventListener("touchstart", (e) => {
-        e.stopPropagation();
-      }, { passive: true });
-      btn.addEventListener("mouseenter", () => {
-        btn.style.background = "rgba(255, 255, 255, 0.25)";
-      });
-      btn.addEventListener("mouseleave", () => {
-        btn.style.background = "rgba(255, 255, 255, 0.15)";
-      });
+      btn.addEventListener("pointerdown", (e) => e.stopPropagation());
+      btn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
     }
   }
 
   if (externalUrl) {
     const extBtn = container.querySelector(".external-media-btn");
     if (extBtn) {
-      extBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-      });
-      extBtn.addEventListener("pointerdown", (e) => {
-        e.stopPropagation();
-      });
-      extBtn.addEventListener("touchstart", (e) => {
-        e.stopPropagation();
-      }, { passive: true });
-      extBtn.addEventListener("mouseenter", () => {
-        extBtn.style.background = "rgba(255, 255, 255, 0.25)";
-      });
-      extBtn.addEventListener("mouseleave", () => {
-        extBtn.style.background = "rgba(255, 255, 255, 0.15)";
-      });
+      extBtn.addEventListener("click", (e) => e.stopPropagation());
+      extBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+      extBtn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
     }
   }
 }
@@ -182,17 +156,14 @@ export function getServicePostUrl(service, userId, postId) {
     }
     return `https://${domain}/${s}/user/${uid}/fancards`;
   }
-
   if (state.currentFeedEndpoint && state.currentFeedEndpoint.includes("/announcements")) {
     if (state.currentSite === "cum") {
       return `https://${domain}/creators/${s}/${uid}/announcements`;
     }
     return `https://${domain}/${s}/user/${uid}/announcements`;
   }
-
   const isDmFeed = state.currentFeedEndpoint && state.currentFeedEndpoint.includes("/dms");
   const isCumDm = state.currentSite === "cum" && (isDmFeed || (postId && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(postId)));
-
   if (isDmFeed || isCumDm) {
     if (state.currentSite === "cum") {
       if (postId) {
@@ -202,14 +173,12 @@ export function getServicePostUrl(service, userId, postId) {
     }
     return `https://${domain}/${s}/user/${uid}/dms`;
   }
-
   if (postId) {
     if (state.currentSite === "cum") {
       return `https://${domain}/creators/${s}/${uid}/post/${pid}`;
     }
     return `https://${domain}/${s}/user/${uid}/post/${pid}`;
   }
-
   if (state.currentSite === "cum") {
     return `https://${domain}/creators/${s}/${uid}`;
   }
@@ -218,12 +187,15 @@ export function getServicePostUrl(service, userId, postId) {
 
 export function getMediaUrl(path) {
   if (!path) return null;
-  if (path.startsWith("http://") || path.startsWith("https://")) return path;
-
+  if (path.startsWith(PROXY_URL)) return path;
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return `${PROXY_URL}/proxy?url=${encodeURIComponent(path)}`;
+  }
   return `${PROXY_URL}/${state.currentSite}/file/data${path}`;
 }
 
 const topProgress = document.getElementById("top-progress");
+
 export function startProgress() {
   if (topProgress) {
     topProgress.classList.remove("done");
@@ -238,18 +210,14 @@ export function stopProgress() {
   }
 }
 
-/**
- * Standard media loading and progress renderer for post items and embeds.
- * Ensures consistent typography, positioning, and layout across Kemono, Coomer, Pawchive, Mega, and Dropbox.
- */
 export function renderMediaProgress(container, status = "Loading...", percent = null, filename = "", loadedStr = "", totalStr = "") {
   if (!container) return;
   container.classList.remove("media-error");
   container.classList.add("media-loading");
   container.style.pointerEvents = "none";
+
   const showPct = percent !== null && percent !== undefined && !isNaN(percent) && (percent > 0 || (loadedStr && loadedStr !== "0 B" && loadedStr !== "Waiting"));
   const pctText = showPct ? ` ${percent}%` : "";
-
   let sizeText = "";
   if (loadedStr && totalStr && totalStr !== "..." && loadedStr !== "Waiting") {
     sizeText = `${loadedStr} / ${totalStr}`;
@@ -273,15 +241,12 @@ export function renderMediaProgress(container, status = "Loading...", percent = 
   `;
 }
 
-/**
- * Standard archive and modal loading renderer for ZIP, Mega, and Dropbox full-screen viewers.
- */
 export function renderArchiveProgress(container, status = "Loading...", percent = null, title = "", loadedStr = "", totalStr = "", extraDetail = "") {
   if (!container) return;
   container.style.pointerEvents = "none";
+
   const showPct = percent !== null && percent !== undefined && !isNaN(percent) && (percent > 0 || (loadedStr && loadedStr !== "0 B"));
   const pctText = showPct ? ` ${percent}%` : "";
-
   let sizeText = "";
   if (loadedStr && totalStr && totalStr !== "...") {
     sizeText = `${loadedStr} / ${totalStr}`;
@@ -305,5 +270,3 @@ export function renderArchiveProgress(container, status = "Loading...", percent 
     ${sizeHtml}
   `;
 }
-
-

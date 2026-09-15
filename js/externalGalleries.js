@@ -113,9 +113,12 @@ export function getMimeType(filename) {
     case "wav":
       return "audio/wav";
     case "m4a":
+    case "aac":
       return "audio/mp4";
     case "flac":
       return "audio/flac";
+    case "opus":
+      return "audio/opus";
     default:
       return "application/octet-stream";
   }
@@ -129,18 +132,20 @@ export function isImageOrVideo(filename) {
   return [
     "jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "svg",
     "mp4", "webm", "mov", "m4v", "ogv", "mkv",
-    "mp3", "ogg", "wav", "m4a", "flac"
+    "mp3", "ogg", "wav", "m4a", "flac", "aac", "opus"
   ].includes(ext);
 }
 
 function cleanUrl(url) {
-  let cleaned = url.replace(/&amp;/g, "&").replace(/[\.,;>]+$/, "").trim();
+  let cleaned = url.replace(/&amp;/g, "&").trim();
+  // Strip trailing punctuation only if not part of a valid URL query/hash structure
+  cleaned = cleaned.replace(/[\.,;]+$/, "");
   while (cleaned.endsWith(")")) {
     const openCount = (cleaned.match(/\(/g) || []).length;
     const closeCount = (cleaned.match(/\)/g) || []).length;
     if (closeCount > openCount) {
       cleaned = cleaned.slice(0, -1);
-      cleaned = cleaned.replace(/[\.,;>]+$/, "").trim();
+      cleaned = cleaned.replace(/[\.,;]+$/, "").trim();
     } else {
       break;
     }

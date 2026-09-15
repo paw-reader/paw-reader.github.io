@@ -9,6 +9,22 @@ import { loadGifPlayer } from "./gifPlayer.js";
 export const dropboxFolderCache = new Map();
 const dropboxInFlight = new Map();
 
+function cleanupContainerMedia(target) {
+  if (!target) return;
+  target.querySelectorAll("video, audio").forEach((v) => {
+    if (typeof v._cleanupCustomPlayer === "function") {
+      try { v._cleanupCustomPlayer(); } catch (_) {}
+    }
+    try {
+      v.pause();
+      if (playbackObserver) playbackObserver.unobserve(v);
+      v.removeAttribute("src");
+      v.load();
+    } catch (_) {}
+  });
+  target.querySelectorAll("video, audio, img.post-media, canvas.post-media, .video-player-wrapper").forEach((el) => el.remove());
+}
+
 /**
  * Checks if a URL points to a Dropbox file or folder share link.
  */
@@ -184,8 +200,6 @@ export async function fetchDropboxFolderEntries(url, signal) {
 
 /**
  * Handles embedding a Dropbox link inside a post card.
- * If it's a folder, inspects contents via worker and embeds a single video/image directly,
- * or displays a detailed multi-file archive card with a file tree and count.
  */
 export function handleDropboxFileCard(item, url, postTitle, filename, progressOverlay, signal) {
   const isFolder = isDropboxFolderUrl(url);
@@ -214,7 +228,7 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
       renderMediaProgress(progressOverlay, "Loading...", null, filename, "", "");
     }
     const triggerRetry = () => {
-      item.querySelectorAll("video, audio, img.post-media, canvas.post-media").forEach((el) => el.remove());
+      cleanupContainerMedia(item);
       delete item.dataset.loaded;
       handleDropboxFileCard(item, url, postTitle, filename, progressOverlay, signal);
     };
@@ -247,7 +261,7 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
         syncCarouselClones(item);
       });
       video.onerror = async () => {
-        item.querySelectorAll("video.post-media").forEach((el) => el.remove());
+        cleanupContainerMedia(item);
         let errorStatus = "500";
         try {
           const probeRes = await fetch(directUrl, { method: "HEAD", signal });
@@ -263,17 +277,17 @@ export function handleDropboxFileCard(item, url, postTitle, filename, progressOv
       img.className = "post-media";
       img.onload = () => {
         if (progressOverlay) progressOverlay.style.display = "none";
-        item.querySelectorAll("img.post-media").forEach((el) => el.remove());
+        cleanupContainerMedia(item);
         item.appendChild(img);
         syncCarouselClones(item);
       };
       const triggerRetry = () => {
-        item.querySelectorAll("video, audio, img.post-media").forEach((el) => el.remove());
+        cleanupContainerMedia(item);
         delete item.dataset.loaded;
         handleDropboxFileCard(item, url, postTitle, filename, progressOverlay, signal);
       };
       img.onerror = async () => {
-        item.querySelectorAll("img.post-media").forEach((el) => el.remove());
+        cleanupContainerMedia(item);
         let errorStatus = "500";
         try {
           const probeRes = await fetch(directUrl, { method: "HEAD", signal });
@@ -305,11 +319,11 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
     const rawEntries = data.entries || [];
     const seen = new Set();
     const entries = [];
-    for (const item of rawEntries) {
-      const key = item.href || item.rawUrl || (item.path || item.filename);
+    for (const entry of rawEntries) {
+      const key = entry.href || entry.rawUrl || (entry.path || entry.filename);
       if (!seen.has(key)) {
         seen.add(key);
-        entries.push(item);
+        entries.push(entry);
       }
     }
 
@@ -329,7 +343,6 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
     const { headerName, tree } = formatDropboxFileTree(entries, folderName);
     const archiveName = headerName || fallbackName || "Dropbox Archive";
 
-    // If folder contains only a single media file and no subfolders, stream it directly in the card
     if (mediaFiles.length === 1 && subfolders.length === 0) {
       const single = mediaFiles[0];
       const isVideo = ["mp4", "webm", "mov"].includes(single.filename.split(".").pop().toLowerCase());
@@ -362,12 +375,12 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
           syncCarouselClones(item);
         });
         const triggerRetry = () => {
-          item.querySelectorAll("video, audio, img.post-media").forEach((el) => el.remove());
+          cleanupContainerMedia(item);
           delete item.dataset.loaded;
           handleDropboxFolderEmbed(item, url, progressOverlay, postTitle, fallbackName, signal);
         };
         video.onerror = async () => {
-          item.querySelectorAll("video.post-media").forEach((el) => el.remove());
+          cleanupContainerMedia(item);
           let errorStatus = "500";
           try {
             const probeRes = await fetch(streamUrl, { method: "HEAD", signal });
@@ -391,17 +404,17 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
         img.className = "post-media";
         img.onload = () => {
           if (progressOverlay) progressOverlay.style.display = "none";
-          item.querySelectorAll("img.post-media").forEach((el) => el.remove());
+          cleanupContainerMedia(item);
           item.appendChild(img);
           syncCarouselClones(item);
         };
         const triggerRetry = () => {
-          item.querySelectorAll("video, audio, img.post-media").forEach((el) => el.remove());
+          cleanupContainerMedia(item);
           delete item.dataset.loaded;
           handleDropboxFolderEmbed(item, url, progressOverlay, postTitle, fallbackName, signal);
         };
         img.onerror = async () => {
-          item.querySelectorAll("img.post-media").forEach((el) => el.remove());
+          cleanupContainerMedia(item);
           let errorStatus = "500";
           try {
             const probeRes = await fetch(streamUrl, { method: "HEAD", signal });
@@ -465,8 +478,7 @@ export async function handleDropboxFolderEmbed(item, url, progressOverlay, postT
 }
 
 /**
- * Progressively crawls Dropbox subfolders in the background to discover all files and their sizes,
- * continuously expanding the feed card's info tree and header counts.
+ * Progressively crawls Dropbox subfolders in the background.
  */
 async function progressivelyExpandDropboxTree(cardItem, rootUrl, initialEntries, folderName, initialTotalSize, archiveName, signal) {
   if (!cardItem || !initialEntries || initialEntries.length === 0) return;
@@ -485,7 +497,7 @@ async function progressivelyExpandDropboxTree(cardItem, rootUrl, initialEntries,
 
   const queue = initialEntries
     .filter((e) => e.is_dir && e.href)
-    .map((e) => ({ ...e, path: e.filename }));
+    .map((e) => ({ ...e, path: e.path || e.filename }));
 
   if (queue.length === 0) return;
 
@@ -528,7 +540,6 @@ async function progressivelyExpandDropboxTree(cardItem, rootUrl, initialEntries,
     const headerSpan = cardItem.querySelector(".zip-info-header span");
     if (headerSpan) headerSpan.textContent = headerText;
 
-    // Synchronize clone slides in infinite loop carousels
     if (cardItem.parentElement && cardItem.parentElement.classList.contains("media-carousel")) {
       const carousel = cardItem.parentElement;
       const children = Array.from(carousel.children);
@@ -626,8 +637,7 @@ async function progressivelyExpandDropboxTree(cardItem, rootUrl, initialEntries,
 }
 
 /**
- * Recursively discovers all subfolders and media files inside a Dropbox shared directory,
- * grouping them by directory path for 2D matrix navigation.
+ * Recursively discovers all subfolders and media files inside a Dropbox shared directory.
  */
 export async function crawlAllDropboxFolders(rootUrl, rootName, initialEntries, signal, onProgress, onFolderDiscovered) {
   const folderGroupsMap = new Map();
@@ -712,7 +722,6 @@ export async function crawlAllDropboxFolders(rootUrl, rootName, initialEntries, 
 
 /**
  * Opens a Dropbox share link in the fullscreen gallery viewer.
- * Folders stream media files individually on-demand without downloading the entire folder.
  */
 export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack = [], post = null) {
   if (post) {
@@ -748,7 +757,6 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
   const isFolder = isDropboxFolderUrl(dropboxUrl);
 
   if (!isFolder) {
-    // Single file share link
     if (signal && signal.aborted) return;
     if (zipContent) {
       zipContent.classList.remove("folder-browser-mode");
@@ -789,7 +797,7 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
       video.style.objectFit = "contain";
       video.onerror = () => {
         if (zipContent) {
-          zipContent.innerHTML = "";
+          cleanupContainerMedia(zipContent);
           showMediaUnavailableWarning(zipContent, {
             type: "video",
             filename,
@@ -808,7 +816,7 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
       img.style.objectFit = "contain";
       img.onerror = () => {
         if (zipContent) {
-          zipContent.innerHTML = "";
+          cleanupContainerMedia(zipContent);
           showMediaUnavailableWarning(zipContent, {
             type: "image",
             filename,
@@ -824,7 +832,6 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
     return;
   }
 
-  // Folder share link: fetch entries and stream individual files on demand
   try {
     const pt = document.getElementById("zip-progress-text");
     if (pt) renderArchiveProgress(pt, "Fetching folder index...", null, galleryTitle || "Dropbox Gallery");
@@ -865,7 +872,6 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
     let galleryMounted = false;
     let totalFoldersFound = 0;
 
-    // Fast Path: If root has media files, mount 2D matrix immediately in <400ms!
     if (rootFiles.length > 0) {
       const rootGroup = {
         folderName: currentFolderName,
@@ -877,7 +883,6 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
       galleryMounted = true;
     }
 
-    // If there are subfolders, progressively crawl them in the background
     if (subfolderEntries.length > 0) {
       if (galleryMounted) {
         updateZipScanProgress("Scanning subfolders...");
@@ -914,21 +919,19 @@ export async function openDropboxGallery(dropboxUrl, galleryTitle, folderStack =
       );
 
       if (signal.aborted) return;
-      updateZipScanProgress(""); // clear badge when done
+      updateZipScanProgress("");
     }
 
     if (galleryMounted) {
       return;
     }
 
-    // Fallback to interactive folder browser if subfolders exist
     const subfolders = entries.filter((f) => f.is_dir);
     if (subfolders.length > 0) {
       renderDropboxFolderBrowser(data, dropboxUrl, currentFolderName, folderStack, signal);
       return;
     }
 
-    // Empty folder
     if (zipContent) {
       zipContent.classList.add("folder-browser-mode");
       zipContent.innerHTML = `
@@ -1027,11 +1030,9 @@ function renderDropboxFolderBrowser(data, folderUrl, currentFolderName, folderSt
   subfolders.sort((a, b) => (a.path || a.filename).localeCompare((b.path || b.filename), undefined, { numeric: true, sensitivity: "base" }));
   mediaFiles.sort((a, b) => (a.path || a.filename).localeCompare((b.path || b.filename), undefined, { numeric: true, sensitivity: "base" }));
 
-  // Build root container
   const root = document.createElement("div");
   root.className = "dropbox-browser-root";
 
-  // Header with back navigation & breadcrumbs
   const header = document.createElement("div");
   header.className = "dropbox-browser-header";
 
@@ -1058,7 +1059,6 @@ function renderDropboxFolderBrowser(data, folderUrl, currentFolderName, folderSt
   }
   header.appendChild(backBtn);
 
-  // Breadcrumbs container
   const crumbs = document.createElement("div");
   crumbs.className = "dropbox-breadcrumbs-container";
 
@@ -1085,7 +1085,6 @@ function renderDropboxFolderBrowser(data, folderUrl, currentFolderName, folderSt
   header.appendChild(crumbs);
   root.appendChild(header);
 
-  // Button to browse all folders in 2D Matrix Gallery
   if (subfolders.length > 0) {
     const matrixBtn = document.createElement("button");
     matrixBtn.className = "dropbox-play-all-bar";
@@ -1101,7 +1100,6 @@ function renderDropboxFolderBrowser(data, folderUrl, currentFolderName, folderSt
     root.appendChild(matrixBtn);
   }
 
-  // If there are media files in this folder, show a Play/View All button
   if (mediaFiles.length > 0) {
     const playBtn = document.createElement("button");
     playBtn.className = "dropbox-play-all-bar";
@@ -1129,7 +1127,6 @@ function renderDropboxFolderBrowser(data, folderUrl, currentFolderName, folderSt
     root.appendChild(playBtn);
   }
 
-  // Subfolders Section
   if (subfolders.length > 0) {
     const sectionTitle = document.createElement("div");
     sectionTitle.className = "dropbox-section-header";
@@ -1164,7 +1161,6 @@ function renderDropboxFolderBrowser(data, folderUrl, currentFolderName, folderSt
     root.appendChild(grid);
   }
 
-  // Direct Media Files list Section
   if (mediaFiles.length > 0) {
     const mediaSectionTitle = document.createElement("div");
     mediaSectionTitle.className = "dropbox-section-header";
@@ -1181,7 +1177,7 @@ function renderDropboxFolderBrowser(data, folderUrl, currentFolderName, folderSt
       const ext = file.filename.split(".").pop().toLowerCase();
       const isVideo = ["mp4", "webm", "mov"].includes(ext);
       const iconSvg = isVideo
-        ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>`
+        ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="17" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>`
         : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 
       const sizeText = file.bytes ? formatBytes(file.bytes) : "";
@@ -1225,17 +1221,13 @@ function renderDropboxFolderBrowser(data, folderUrl, currentFolderName, folderSt
   zipContent.appendChild(root);
 }
 
-
 /**
  * Loads an individual media item (streaming video or lazy loading image) into its slide.
  */
 function loadAndDisplayDropboxItem(container, file, signal) {
   if (!file) return;
 
-  // If already loaded, do nothing
   if (container.dataset.loaded === "true") return;
-
-  // If actively loading, do not initiate a redundant load
   if (container.dataset.loading === "true") return;
 
   const fileIdxStr = container.dataset.fileIdx;
@@ -1244,14 +1236,13 @@ function loadAndDisplayDropboxItem(container, file, signal) {
     ? Array.from(parentRow.querySelectorAll(`[data-file-idx="${fileIdxStr}"]`))
     : (zipContent ? Array.from(zipContent.querySelectorAll(`[data-file-idx="${fileIdxStr}"]`)) : [container]);
 
-  // If another clone already has this media successfully loaded, clone it directly and return
   const alreadyLoadedContainer = allMatchingContainers.find((c) => c.dataset.loaded === "true");
   if (alreadyLoadedContainer) {
     container.dataset.loaded = "true";
     delete container.dataset.loading;
     const existingMedia = alreadyLoadedContainer.querySelector("img, video");
     if (existingMedia) {
-      container.querySelectorAll("img, video").forEach((el) => el.remove());
+      cleanupContainerMedia(container);
       container.appendChild(existingMedia.cloneNode(true));
     }
     const o = container.querySelector(".media-progress");
@@ -1259,7 +1250,6 @@ function loadAndDisplayDropboxItem(container, file, signal) {
     return;
   }
 
-  // Mark all matching containers as loading
   allMatchingContainers.forEach((c) => {
     c.dataset.loading = "true";
     delete c.dataset.loaded;
@@ -1287,8 +1277,15 @@ function loadAndDisplayDropboxItem(container, file, signal) {
 
   if (isVideo) {
     allMatchingContainers.forEach((c) => {
-      c.querySelectorAll("img, video").forEach((el) => el.remove());
-      if (c.dataset.isClone === "true") return;
+      cleanupContainerMedia(c);
+      if (c.dataset.isClone === "true") {
+        const placeholder = document.createElement("div");
+        placeholder.className = "post-media";
+        placeholder.style.cssText = "display: flex; align-items: center; justify-content: center; background: #000; width: 100%; height: 100%;";
+        placeholder.innerHTML = '<svg viewBox="0 0 24 24" width="48" height="48" fill="rgba(255,255,255,0.35)"><path d="M8 5v14l11-7z"/></svg>';
+        c.appendChild(placeholder);
+        return;
+      }
 
       const video = document.createElement("video");
       video.playsInline = true;
@@ -1320,7 +1317,7 @@ function loadAndDisplayDropboxItem(container, file, signal) {
         allMatchingContainers.forEach((target) => {
           delete target.dataset.loading;
           delete target.dataset.loaded;
-          target.querySelectorAll("video").forEach((v) => v.remove());
+          cleanupContainerMedia(target);
         });
 
         let errorStatus = "500";
@@ -1345,7 +1342,7 @@ function loadAndDisplayDropboxItem(container, file, signal) {
               externalUrl: targetUrl,
               onRetry: () => {
                 allMatchingContainers.forEach((t) => {
-                  t.querySelectorAll("video, img").forEach((el) => el.remove());
+                  cleanupContainerMedia(t);
                   delete t.dataset.loading;
                   delete t.dataset.loaded;
                 });
@@ -1359,7 +1356,6 @@ function loadAndDisplayDropboxItem(container, file, signal) {
       video.src = streamUrl;
     });
   } else {
-    // Off-screen Image instance so broken image icon is never shown in DOM
     const img = new Image();
     img.style.maxWidth = "100%";
     img.style.maxHeight = "100%";
@@ -1371,7 +1367,7 @@ function loadAndDisplayDropboxItem(container, file, signal) {
       allMatchingContainers.forEach((target) => {
         target.dataset.loaded = "true";
         delete target.dataset.loading;
-        target.querySelectorAll("img, video").forEach((el) => el.remove());
+        cleanupContainerMedia(target);
         target.appendChild(img.cloneNode(true));
         const o = target.querySelector(".media-progress");
         if (o) o.style.display = "none";
@@ -1383,7 +1379,7 @@ function loadAndDisplayDropboxItem(container, file, signal) {
       allMatchingContainers.forEach((target) => {
         delete target.dataset.loading;
         delete target.dataset.loaded;
-        target.querySelectorAll("img, video").forEach((el) => el.remove());
+        cleanupContainerMedia(target);
       });
 
       let errorStatus = "500";
@@ -1414,7 +1410,7 @@ function loadAndDisplayDropboxItem(container, file, signal) {
             externalUrl: targetUrl,
             onRetry: () => {
               allMatchingContainers.forEach((t) => {
-                t.querySelectorAll("img, video").forEach((el) => el.remove());
+                cleanupContainerMedia(t);
                 delete t.dataset.loading;
                 delete t.dataset.loaded;
               });

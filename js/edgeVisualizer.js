@@ -10,11 +10,13 @@
  * - pawEdgeConfig : inspect current configuration
  */
 
+import { getActiveMediaItem } from "./zip.js";
+
 export const DEFAULT_EDGE_CONFIG = {
-  top: 0.10,
-  bottom: 0.10,
-  left: 0.10,
-  right: 0.10
+  top: 0.05,
+  bottom: 0.05,
+  left: 0.05,
+  right: 0.05
 };
 
 export const edgeConfig = { ...DEFAULT_EDGE_CONFIG };
@@ -28,10 +30,10 @@ try {
       if (parsed.left >= 0.45 || parsed.right >= 0.45 || (parsed.left + parsed.right) >= 0.8) {
         localStorage.removeItem("paw_edge_config");
       } else {
-        if (typeof parsed.top === "number" && parsed.top > 0 && parsed.top <= 0.40) edgeConfig.top = parsed.top;
-        if (typeof parsed.bottom === "number" && parsed.bottom > 0 && parsed.bottom <= 0.40) edgeConfig.bottom = parsed.bottom;
-        if (typeof parsed.left === "number" && parsed.left > 0 && parsed.left <= 0.40) edgeConfig.left = parsed.left;
-        if (typeof parsed.right === "number" && parsed.right > 0 && parsed.right <= 0.40) edgeConfig.right = parsed.right;
+        if (typeof parsed.top === "number" && parsed.top > 0 && parsed.top <= 0.45) edgeConfig.top = parsed.top;
+        if (typeof parsed.bottom === "number" && parsed.bottom > 0 && parsed.bottom <= 0.45) edgeConfig.bottom = parsed.bottom;
+        if (typeof parsed.left === "number" && parsed.left > 0 && parsed.left <= 0.45) edgeConfig.left = parsed.left;
+        if (typeof parsed.right === "number" && parsed.right > 0 && parsed.right <= 0.45) edgeConfig.right = parsed.right;
       }
     }
   }
@@ -46,7 +48,6 @@ let pointerListener = null;
 let scrollListener = null;
 let currentLayoutHasMultiple = null;
 
-// Color theme for each edge
 const ZONE_COLORS = {
   top: {
     name: "Top (Scroll Up / Prev Post)",
@@ -93,15 +94,25 @@ const ZONE_COLORS = {
 export function getActivePostInfo() {
   const zipViewer = document.getElementById("zip-viewer");
   const zipContent = document.getElementById("zip-content");
+
   if (zipViewer && !zipViewer.classList.contains("hidden")) {
+    if (zipContent && zipContent.classList.contains("gallery-2d-mode")) {
+      const active = getActiveMediaItem();
+      if (active && active.folderRow) {
+        const count = active.totalFiles || 1;
+        return { hasMultiple: count > 1, count, isZip: true };
+      }
+    }
     const count = parseInt(zipContent?.dataset?.mediaCount || "0", 10) || 1;
     return { hasMultiple: count > 1, count, isZip: true };
   }
 
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  const el = document.elementFromPoint(w / 2, h / 2);
-  const card = el?.closest(".post-card") || document.querySelector(".post-card");
+  const feed = document.getElementById("feed");
+  if (!feed) return { hasMultiple: false, count: 1, isZip: false };
+
+  const h = (feed && feed.clientHeight) || window.innerHeight || 1;
+  const currentIndex = Math.round(feed.scrollTop / h);
+  const card = feed.children[currentIndex] || feed.querySelector(".post-card");
   if (!card) return { hasMultiple: false, count: 1, isZip: false };
 
   const carousel = card.querySelector(".media-carousel");
@@ -133,27 +144,21 @@ function createOverlay() {
     -webkit-user-select: none;
   `;
 
-  // Top zone
   const topZone = document.createElement("div");
   topZone.className = "paw-zone paw-zone-top";
 
-  // Bottom zone
   const bottomZone = document.createElement("div");
   bottomZone.className = "paw-zone paw-zone-bottom";
 
-  // Left zone
   const leftZone = document.createElement("div");
   leftZone.className = "paw-zone paw-zone-left";
 
-  // Right zone
   const rightZone = document.createElement("div");
   rightZone.className = "paw-zone paw-zone-right";
 
-  // Center zone
   const centerZone = document.createElement("div");
   centerZone.className = "paw-zone paw-zone-center";
 
-  // Floating Real-Time HUD Pill
   const hud = document.createElement("div");
   hud.className = "paw-edge-hud";
   hud.style.cssText = `
@@ -238,7 +243,6 @@ function updateOverlayLayout(postInfo, force = false) {
   }
 
   if (hasMultiple) {
-    // 2 or more files: Left and Right edges take FULL HEIGHT (0% to 100%) and have corner priority!
     leftZone.style.cssText = `
       position: absolute;
       top: 0;
@@ -301,7 +305,6 @@ function updateOverlayLayout(postInfo, force = false) {
       </div>
     `;
 
-    // Top zone covers the center width
     topZone.style.cssText = `
       position: absolute;
       top: 0;
@@ -323,7 +326,6 @@ function updateOverlayLayout(postInfo, force = false) {
       </div>
     `;
 
-    // Bottom zone covers the center width
     bottomZone.style.cssText = `
       position: absolute;
       bottom: 0;
@@ -345,7 +347,6 @@ function updateOverlayLayout(postInfo, force = false) {
       </div>
     `;
 
-    // Center zone
     centerZone.style.cssText = `
       position: absolute;
       top: ${topPct}%;
@@ -366,7 +367,6 @@ function updateOverlayLayout(postInfo, force = false) {
       </div>
     `;
   } else {
-    // Single file post: Top and Bottom cover full width (0% to 100%), taking corners
     topZone.style.cssText = `
       position: absolute;
       top: 0;
@@ -474,7 +474,7 @@ function updateOverlayLayout(postInfo, force = false) {
 }
 
 function updateHoveredZone(clientX, clientY) {
-  if (!visualizerEl) return;
+  if (!visualizerEl || clientX === undefined || clientY === undefined) return;
   const w = window.innerWidth;
   const h = window.innerHeight;
   const postInfo = getActivePostInfo();
@@ -488,7 +488,6 @@ function updateHoveredZone(clientX, clientY) {
 
   let zoneKey = "center";
   if (postInfo.hasMultiple) {
-    // 2 or more files: Left and Right have priority on corners
     if (clientX < leftThreshold) {
       zoneKey = "left";
     } else if (clientX > rightThreshold) {
@@ -499,7 +498,6 @@ function updateHoveredZone(clientX, clientY) {
       zoneKey = "bottom";
     }
   } else {
-    // 1 file: Top and Bottom span full width (corners)
     if (clientY < topThreshold) {
       zoneKey = "top";
     } else if (clientY > bottomThreshold) {
@@ -536,13 +534,6 @@ function updateHoveredZone(clientX, clientY) {
   }
 }
 
-/**
- * Configure edge sizes dynamically.
- * Examples:
- * - pawSetEdges(15, 20) : 15% vertical, 20% horizontal
- * - pawSetEdges(0.15, 0.20) : same as above
- * - pawSetEdges({ top: 0.10, bottom: 0.15, left: 0.25, right: 0.25 })
- */
 export function setEdgeSizes(...args) {
   let newTop = edgeConfig.top;
   let newBottom = edgeConfig.bottom;
@@ -574,7 +565,6 @@ export function setEdgeSizes(...args) {
     newRight = h;
   }
 
-  // Safety clamps between 1% and 45%
   edgeConfig.top = Math.max(0.01, Math.min(0.45, newTop));
   edgeConfig.bottom = Math.max(0.01, Math.min(0.45, newBottom));
   edgeConfig.left = Math.max(0.01, Math.min(0.45, newLeft));
@@ -584,7 +574,6 @@ export function setEdgeSizes(...args) {
     localStorage.setItem("paw_edge_config", JSON.stringify(edgeConfig));
   } catch (_) {}
 
-  // Update visualizer immediately if active
   if (visualizerEl) {
     updateOverlayLayout(getActivePostInfo(), true);
   }
@@ -604,10 +593,6 @@ export function resetEdgeSizes() {
   return setEdgeSizes(DEFAULT_EDGE_CONFIG);
 }
 
-/**
- * Toggle or set edge visualizer state
- * @param {boolean} [forceState]
- */
 export function toggleEdgeVisualizer(forceState) {
   const shouldEnable = typeof forceState === "boolean" ? forceState : !visualizerEl;
 
@@ -628,7 +613,6 @@ export function toggleEdgeVisualizer(forceState) {
       };
       window.addEventListener("pointermove", pointerListener, { passive: true });
       window.addEventListener("touchmove", pointerListener, { passive: true });
-      window.addEventListener("touchstart", pointerListener, { passive: true });
     }
 
     if (!scrollListener) {
@@ -638,6 +622,8 @@ export function toggleEdgeVisualizer(forceState) {
       };
       const feed = document.getElementById("feed");
       if (feed) feed.addEventListener("scroll", scrollListener, { passive: true });
+      const zipContent = document.getElementById("zip-content");
+      if (zipContent) zipContent.addEventListener("scroll", scrollListener, { passive: true });
       window.addEventListener("scroll", scrollListener, { passive: true });
     }
 
@@ -676,12 +662,13 @@ export function toggleEdgeVisualizer(forceState) {
     if (pointerListener) {
       window.removeEventListener("pointermove", pointerListener);
       window.removeEventListener("touchmove", pointerListener);
-      window.removeEventListener("touchstart", pointerListener);
       pointerListener = null;
     }
     if (scrollListener) {
       const feed = document.getElementById("feed");
       if (feed) feed.removeEventListener("scroll", scrollListener);
+      const zipContent = document.getElementById("zip-content");
+      if (zipContent) zipContent.removeEventListener("scroll", scrollListener);
       window.removeEventListener("scroll", scrollListener);
       scrollListener = null;
     }
@@ -697,9 +684,6 @@ export function toggleEdgeVisualizer(forceState) {
   }
 }
 
-/**
- * Register global console commands and restore saved preference
- */
 export function initEdgeVisualizer() {
   const settingCheckbox = document.getElementById("setting-visualize-edges");
   if (settingCheckbox) {
@@ -719,7 +703,6 @@ export function initEdgeVisualizer() {
   window.pawResetEdges = resetEdgeSizes;
   window.resetEdges = resetEdgeSizes;
 
-  // Allow typing simply `edges` in console without parentheses
   try {
     Object.defineProperty(window, "edges", {
       get: () => toggleEdgeVisualizer(),
@@ -727,7 +710,6 @@ export function initEdgeVisualizer() {
     });
   } catch (_) {}
 
-  // Restore state if previously enabled
   if (localStorage.getItem("paw_show_edges") === "true") {
     toggleEdgeVisualizer(true);
   }

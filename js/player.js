@@ -18,7 +18,6 @@ export function attachCustomVideoPlayer(video, container) {
   if (!video || !container) return;
   if (container.querySelector(".custom-player-overlay")) return;
 
-  // Disable native browser video controls and remove attribute completely
   video.controls = false;
   video.removeAttribute("controls");
   if (video.removeAttribute) {
@@ -28,8 +27,8 @@ export function attachCustomVideoPlayer(video, container) {
     video.crossOrigin = null;
   }
 
-  // Wrap video inside .video-player-wrapper so controls match video bounds exactly
   let wrapper = video.closest(".video-player-wrapper");
+  let createdWrapper = false;
   if (!wrapper) {
     wrapper = document.createElement("div");
     wrapper.className = "video-player-wrapper";
@@ -39,9 +38,9 @@ export function attachCustomVideoPlayer(video, container) {
       container.appendChild(wrapper);
     }
     wrapper.appendChild(video);
+    createdWrapper = true;
   }
 
-  // Build custom player overlay DOM
   const overlay = document.createElement("div");
   overlay.className = "custom-player-overlay";
 
@@ -140,7 +139,6 @@ export function attachCustomVideoPlayer(video, container) {
 
   wrapper.appendChild(overlay);
 
-  // Element selections
   const centerBtn = overlay.querySelector(".player-center-btn");
   const skipLeft = overlay.querySelector(".skip-left");
   const skipRight = overlay.querySelector(".skip-right");
@@ -182,7 +180,6 @@ export function attachCustomVideoPlayer(video, container) {
     volumeGroup.style.display = "none";
   }
 
-  // State
   let autoHideTimer = null;
   let singleTapTimer = null;
   let lastTapTime = 0;
@@ -193,7 +190,6 @@ export function attachCustomVideoPlayer(video, container) {
   let isVolumeScrubbing = false;
   let lastNonZeroVolume = 1;
 
-  // --- Fit Wrapper to Exact Video Render Dimensions ---
   function updateVideoDimensions() {
     if (!video.videoWidth || !video.videoHeight) {
       wrapper.style.width = "100%";
@@ -215,7 +211,6 @@ export function attachCustomVideoPlayer(video, container) {
     wrapper.style.aspectRatio = `${vw} / ${vh}`;
   }
 
-  // --- Auto-hide Controls ---
   function resetAutoHide() {
     clearTimeout(autoHideTimer);
     if (!video.paused && overlay.classList.contains("controls-visible")) {
@@ -254,15 +249,14 @@ export function attachCustomVideoPlayer(video, container) {
       window.lastMouseY = -1;
       updateNavVisibility();
       const zipNav = document.getElementById("zip-nav");
-      const zipViewer = document.getElementById("zip-viewer");
-      if (zipNav && zipViewer && !zipViewer.classList.contains("hidden")) {
+      const zipViewerEl = document.getElementById("zip-viewer");
+      if (zipNav && zipViewerEl && !zipViewerEl.classList.contains("hidden")) {
         state.zipNavManualVisible = true;
         zipNav.classList.add("visible");
       }
     }
   }
 
-  // --- Play/Pause UI sync ---
   function updatePlayState() {
     const isPaused = video.paused;
     overlay.classList.toggle("is-paused", isPaused);
@@ -281,15 +275,14 @@ export function attachCustomVideoPlayer(video, container) {
   function togglePlay() {
     if (video.paused) {
       if (video.dataset?.isGif === "true") video._userPaused = false;
-      const p = video.play(true);
-      if (p !== undefined) p.catch(() => {});
+      const p = video.play();
+      if (p !== undefined && typeof p.catch === "function") p.catch(() => {});
     } else {
       if (video.dataset?.isGif === "true") video._userPaused = true;
-      video.pause(true);
+      video.pause();
     }
   }
 
-  // --- Mute/Unmute & Volume UI sync ---
   function updateMuteState() {
     if (isGif) return;
     const isMuted = video.muted || video.volume === 0;
@@ -345,7 +338,6 @@ export function attachCustomVideoPlayer(video, container) {
     resetAutoHide();
   }
 
-  // Volume slider events
   volumeSliderWrap.addEventListener("mousedown", (e) => {
     e.stopPropagation();
     isVolumeScrubbing = true;
@@ -393,7 +385,6 @@ export function attachCustomVideoPlayer(video, container) {
   volumeSliderWrap.addEventListener("touchend", endVolumeScrub);
   volumeSliderWrap.addEventListener("touchcancel", endVolumeScrub);
 
-  // --- Timeline & Progress ---
   function updateTimeline() {
     if (isScrubbing) return;
     const duration = video.duration || 0;
@@ -404,7 +395,6 @@ export function attachCustomVideoPlayer(video, container) {
     timelineThumb.style.left = `${pct}%`;
     currentTimeEl.textContent = formatTime(current);
 
-    // Buffered range
     if (video.buffered && video.buffered.length > 0 && duration > 0) {
       let maxBuffered = 0;
       for (let i = 0; i < video.buffered.length; i++) {
@@ -430,7 +420,6 @@ export function attachCustomVideoPlayer(video, container) {
     video.currentTime = pct * duration;
   }
 
-  // Timeline events
   timeline.addEventListener("mousedown", (e) => {
     e.stopPropagation();
     isScrubbing = true;
@@ -478,14 +467,13 @@ export function attachCustomVideoPlayer(video, container) {
   timeline.addEventListener("touchend", endTimelineScrub);
   timeline.addEventListener("touchcancel", endTimelineScrub);
 
-  // --- Double-Tap Skip Feedback ---
   function showSkipFeedback(side, seconds) {
     const indicator = side === "left" ? skipLeft : skipRight;
     const textEl = side === "left" ? skipLeftText : skipRightText;
     textEl.textContent = side === "left" ? `-${seconds}s` : `+${seconds}s`;
 
     indicator.classList.remove("active");
-    void indicator.offsetWidth; // Force reflow
+    void indicator.offsetWidth;
     indicator.classList.add("active");
   }
 
@@ -499,7 +487,6 @@ export function attachCustomVideoPlayer(video, container) {
     updateTimeline();
   }
 
-  // --- Tap & Double-Tap Handling on Overlay ---
   let touchStartX = 0;
   let touchStartY = 0;
   let isDragMove = false;
@@ -523,12 +510,10 @@ export function attachCustomVideoPlayer(video, container) {
   }, { passive: true });
 
   overlay.addEventListener("click", (e) => {
-    // If clicking a button, timeline, volume slider, or links, let the element handle it
     if (e.target.closest("button, .player-timeline, .player-volume-slider, a")) {
       return;
     }
 
-    // Ignore if finger moved > 18px (user was swiping cards or carousel)
     if (isDragMove) {
       isDragMove = false;
       return;
@@ -551,8 +536,6 @@ export function attachCustomVideoPlayer(video, container) {
     const isHorizontalEdge = (hasMultiple || isZipGallery) && (x < w * (edgeCfg.left ?? 0.05) || x > w * (1 - (edgeCfg.right ?? 0.05)));
 
     if (isVerticalEdge || isHorizontalEdge) {
-      // In edge navigation zone: do not stop propagation, do not toggle controls, do not play/pause or seek!
-      // Allow event to bubble to zipViewer in app.js or card in feed.js!
       return;
     }
 
@@ -567,11 +550,9 @@ export function attachCustomVideoPlayer(video, container) {
     const side = isLeft ? "left" : isRight ? "right" : "center";
     const now = Date.now();
 
-    // Check for double-tap on left or right side
     const isDoubleTap = (now - lastTapTime < 280) && (side === lastTapSide) && (side === "left" || side === "right");
 
     if (isDoubleTap) {
-      // Cancel single tap action
       if (singleTapTimer) {
         clearTimeout(singleTapTimer);
         singleTapTimer = null;
@@ -595,8 +576,6 @@ export function attachCustomVideoPlayer(video, container) {
       return;
     }
 
-    // Center tap: Double-tap skip does not apply to center region.
-    // Executing immediately and synchronously ensures mobile user-gesture requirements are satisfied.
     if (side === "center") {
       lastTapTime = now;
       lastTapSide = side;
@@ -609,7 +588,6 @@ export function attachCustomVideoPlayer(video, container) {
       return;
     }
 
-    // First tap on left or right: queue single tap to allow double-tap skip
     lastTapTime = now;
     lastTapSide = side;
     accumulatedSkip = 5;
@@ -617,12 +595,10 @@ export function attachCustomVideoPlayer(video, container) {
     clearTimeout(singleTapTimer);
     singleTapTimer = setTimeout(() => {
       singleTapTimer = null;
-      // Single tap: Toggle player controls & nav buttons (Option A)
       toggleControls();
     }, 260);
   });
 
-  // Tapping the letterbox space outside the video wrapper toggles controls/nav or navigates edges
   const onContainerClick = (e) => {
     if (e.target.closest(".video-player-wrapper")) return;
     const card = container.closest(".post-card");
@@ -632,7 +608,6 @@ export function attachCustomVideoPlayer(video, container) {
     const isNavVisible = navEl && navEl.classList.contains("visible");
     const isControlsVisible = overlay.classList.contains("controls-visible");
 
-    // If controls or nav buttons are currently visible, tapping empty space hides them (matching image behavior)
     if (isNavVisible || isControlsVisible) {
       hideControls();
       state.navManualVisible = false;
@@ -664,8 +639,6 @@ export function attachCustomVideoPlayer(video, container) {
     const isHorizontalEdge = (hasMultiple || isZipGallery) && (x < w * (edgeCfg.left ?? 0.05) || x > w * (1 - (edgeCfg.right ?? 0.05)));
 
     if (isVerticalEdge || isHorizontalEdge) {
-      // In edge zone: do not toggle controls or stop propagation.
-      // Let the event bubble to card.addEventListener("click") in feed.js which executes post/carousel scroll!
       return;
     }
 
@@ -675,13 +648,11 @@ export function attachCustomVideoPlayer(video, container) {
       return;
     }
 
-    // Tap in non-edge center empty space: toggle controls & nav
     toggleControls();
     e.stopPropagation();
   };
   container.addEventListener("click", onContainerClick);
 
-  // --- Button Listeners ---
   centerBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     togglePlay();
@@ -720,7 +691,6 @@ export function attachCustomVideoPlayer(video, container) {
     resetAutoHide();
   });
 
-  // --- Fullscreen Handling ---
   function toggleFullscreen() {
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
@@ -738,14 +708,15 @@ export function attachCustomVideoPlayer(video, container) {
   }
 
   function updateFsIcon() {
-    const isFs = !!document.fullscreenElement;
+    const isFs = !!document.fullscreenElement || !!video.webkitDisplayingFullscreen;
     iconFsEnter.style.display = isFs ? "none" : "";
     iconFsExit.style.display = isFs ? "" : "none";
   }
 
   document.addEventListener("fullscreenchange", updateFsIcon);
+  video.addEventListener("webkitbeginfullscreen", updateFsIcon);
+  video.addEventListener("webkitendfullscreen", updateFsIcon);
 
-  // --- Video Event Listeners ---
   video.addEventListener("timeupdate", updateTimeline);
   video.addEventListener("play", updatePlayState);
   video.addEventListener("pause", updatePlayState);
@@ -763,7 +734,6 @@ export function attachCustomVideoPlayer(video, container) {
   video.addEventListener("canplay", updateVideoDimensions);
   video.addEventListener("playing", updateVideoDimensions);
 
-  // Sync if metadata is already loaded
   if (video.readyState >= 1) {
     durationTimeEl.textContent = formatTime(video.duration);
     updateVideoDimensions();
@@ -772,7 +742,6 @@ export function attachCustomVideoPlayer(video, container) {
   updateMuteState();
   updatePlayState();
 
-  // ResizeObserver ensures wrapper hugs the video if viewport changes
   let resizeObserver = null;
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver(() => {
@@ -782,15 +751,15 @@ export function attachCustomVideoPlayer(video, container) {
   }
   window.addEventListener("resize", updateVideoDimensions);
 
-  // Listen for global nav-hide event to keep UI clean
   const onGlobalNavHidden = () => {
     hideControls();
   };
   document.addEventListener("paw:navhidden", onGlobalNavHidden);
 
-  // Store cleanup on video element
   video._cleanupCustomPlayer = () => {
     document.removeEventListener("fullscreenchange", updateFsIcon);
+    video.removeEventListener("webkitbeginfullscreen", updateFsIcon);
+    video.removeEventListener("webkitendfullscreen", updateFsIcon);
     document.removeEventListener("paw:navhidden", onGlobalNavHidden);
     window.removeEventListener("resize", updateVideoDimensions);
     if (resizeObserver) resizeObserver.disconnect();
@@ -799,6 +768,11 @@ export function attachCustomVideoPlayer(video, container) {
     clearTimeout(singleTapTimer);
     clearTimeout(skipResetTimer);
     overlay.remove();
+
+    if (createdWrapper && wrapper.parentNode) {
+      wrapper.parentNode.insertBefore(video, wrapper);
+      wrapper.remove();
+    }
   };
 
   return overlay;

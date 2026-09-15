@@ -1,7 +1,7 @@
 // js/gifPlayer.js
 // Custom video player engine for animated GIF files in Paw Reader.
 // Features:
-// 1. Hardware-accelerated native WebCodecs ImageDecoder with on-demand streaming (zero main-thread lag).
+// 1. Hardware-accelerated native WebCodecs ImageDecoder with on-demand streaming.
 // 2. Non-blocking Asynchronous Web Worker fallback for browsers without ImageDecoder (e.g. Firefox).
 // 3. Instant frame 0 presentation (<10ms) eliminating initial blank / freeze times.
 // 4. Duck-typed HTMLVideoElement for seamless connection with attachCustomVideoPlayer.
@@ -63,7 +63,7 @@ function GifReader(buf) {
           case 0xff: // Application extension
             if (
               buf[p] !== 0x0b ||
-              buf[p + 1] === 0x4e &&
+              (buf[p + 1] === 0x4e &&
                 buf[p + 2] === 0x45 &&
                 buf[p + 3] === 0x54 &&
                 buf[p + 4] === 0x53 &&
@@ -76,7 +76,7 @@ function GifReader(buf) {
                 buf[p + 11] === 0x30 &&
                 buf[p + 12] === 0x03 &&
                 buf[p + 13] === 0x01 &&
-                buf[p + 16] === 0
+                buf[p + 16] === 0)
             ) {
               p += 14;
               loop_count = buf[p++] | (buf[p++] << 8);
@@ -177,7 +177,6 @@ function GifReader(buf) {
         break;
 
       default:
-        // Skip unrecognized byte rather than aborting whole GIF
         break;
     }
   }
@@ -338,13 +337,11 @@ function createFrameLookup(frames, totalDuration) {
     const boundedTime = Math.max(0, Math.min(totalDuration, t));
     const targetCentis = Math.round(boundedTime * 100);
 
-    // Fast O(1) check: still on current frame
     if (currentIdx >= 0 && currentIdx < frames.length) {
       const cur = frames[currentIdx];
       if (targetCentis >= cur.startCentis && targetCentis < cur.endCentis) {
         return currentIdx;
       }
-      // Fast O(1) check: next sequential frame
       const nextIdx = (currentIdx + 1) % frames.length;
       const next = frames[nextIdx];
       if (targetCentis >= next.startCentis && (targetCentis < next.endCentis || nextIdx === frames.length - 1)) {
@@ -352,7 +349,6 @@ function createFrameLookup(frames, totalDuration) {
       }
     }
 
-    // Binary search for timeline seeks / jumps
     let low = 0;
     let high = frames.length - 1;
     while (low <= high) {
@@ -375,26 +371,28 @@ function createFrameLookup(frames, totalDuration) {
 // ============================================================================
 
 async function createImageDecoderVideoElement({ decoder, width, height, numFrames, totalDuration, frames }) {
+  let displayWidth = width;
+  let displayHeight = height;
+
   const canvas = document.createElement("canvas");
   canvas.className = "post-media";
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = displayWidth;
+  canvas.height = displayHeight;
   canvas.dataset.isGif = "true";
 
   const ctx = canvas.getContext("2d", { alpha: true });
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
-  // Decode frame 0 immediately to present the first frame synchronously
   try {
     const res0 = await decoder.decode({ frameIndex: 0 });
-    const trueW = res0.image.displayWidth || width;
-    const trueH = res0.image.displayHeight || height;
-    if (canvas.width !== trueW || canvas.height !== trueH) {
-      canvas.width = trueW;
-      canvas.height = trueH;
+    displayWidth = res0.image.displayWidth || width;
+    displayHeight = res0.image.displayHeight || height;
+    if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+      canvas.width = displayWidth;
+      canvas.height = displayHeight;
     }
-    ctx.drawImage(res0.image, 0, 0, trueW, trueH);
+    ctx.drawImage(res0.image, 0, 0, displayWidth, displayHeight);
     res0.image.close();
   } catch (_) {}
 
@@ -410,7 +408,6 @@ async function createImageDecoderVideoElement({ decoder, width, height, numFrame
   let lastTimeupdateDispatch = 0;
   canvas._userPaused = false;
 
-  // Single-frame prefetch queue: prefetch the next frame during playback for 60fps locked rendering
   let prefetchIdx = -1;
   let prefetchedFrame = null;
   let prefetchPromise = null;
@@ -438,8 +435,8 @@ async function createImageDecoderVideoElement({ decoder, width, height, numFrame
   }
 
   function drawVideoFrame(vf) {
-    ctx.clearRect(0, 0, width, height);
-    ctx.drawImage(vf, 0, 0, width, height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(vf, 0, 0, canvas.width, canvas.height);
   }
 
   function renderFrameAtTime(t) {
@@ -447,7 +444,6 @@ async function createImageDecoderVideoElement({ decoder, width, height, numFrame
     if (idx === currentFrameIndex || isCleanedUp) return;
     currentFrameIndex = idx;
 
-    // Fast path: prefetched frame already ready
     if (prefetchIdx === idx && prefetchedFrame) {
       const vf = prefetchedFrame;
       prefetchedFrame = null;
@@ -458,7 +454,6 @@ async function createImageDecoderVideoElement({ decoder, width, height, numFrame
       return;
     }
 
-    // Pending prefetch promise
     if (prefetchIdx === idx && prefetchPromise) {
       prefetchPromise.then(() => {
         if (currentFrameIndex === idx && prefetchedFrame && !isCleanedUp) {
@@ -473,7 +468,6 @@ async function createImageDecoderVideoElement({ decoder, width, height, numFrame
       return;
     }
 
-    // On-demand decode (e.g. user scrubbed or jumped)
     if (prefetchedFrame) {
       try { prefetchedFrame.close(); } catch (_) {}
       prefetchedFrame = null;
@@ -537,14 +531,13 @@ async function createImageDecoderVideoElement({ decoder, width, height, numFrame
     }
   }
 
-  // Duck-typed HTMLVideoElement API
   canvas.load = () => {};
   canvas.playbackRate = 1.0;
   canvas.seeking = false;
   canvas.currentSrc = "";
 
-  Object.defineProperty(canvas, "videoWidth", { get: () => width, configurable: true });
-  Object.defineProperty(canvas, "videoHeight", { get: () => height, configurable: true });
+  Object.defineProperty(canvas, "videoWidth", { get: () => canvas.width, configurable: true });
+  Object.defineProperty(canvas, "videoHeight", { get: () => canvas.height, configurable: true });
   Object.defineProperty(canvas, "duration", { get: () => totalDuration, configurable: true });
 
   Object.defineProperty(canvas, "currentTime", {
@@ -645,17 +638,14 @@ self.onmessage = async function(e) {
       const sharedIndexStream = new Uint8Array(width * height);
       let savedBuffer = null;
 
-      // If frame 0 has disposal 3 (restore to previous), save clean empty buffer
       if (reader.frameInfo(0).disposal === 3) {
         savedBuffer = new Uint8ClampedArray(width * height * 4);
       }
 
-      // Immediately decode frame 0 at 100% native resolution
       reader.decodeAndBlitFrameRGBA(0, compBuffer, sharedIndexStream);
       const imgData0 = new ImageData(new Uint8ClampedArray(compBuffer), width, height);
       const bmp0 = await createImageBitmap(imgData0);
 
-      // Send initReady event immediately with frame 0
       self.postMessage({
         action: "initReady",
         width,
@@ -666,7 +656,6 @@ self.onmessage = async function(e) {
         frame0: bmp0,
       }, [bmp0]);
 
-      // Stream remaining frames in batches of 10
       let batch = [];
       let transferList = [];
 
@@ -730,7 +719,6 @@ function createWorkerGifVideoElement(worker, initData) {
   const frameBitmaps = new Array(numFrames);
   frameBitmaps[0] = frame0;
 
-  // Render initial frame immediately
   ctx.drawImage(frame0, 0, 0, width, height);
 
   const findFrameIndex = createFrameLookup(frames, totalDuration);
@@ -745,7 +733,6 @@ function createWorkerGifVideoElement(worker, initData) {
   let lastTimeupdateDispatch = 0;
   canvas._userPaused = false;
 
-  // Stream subsequent frame batches from Worker
   worker.onmessage = (e) => {
     if (isCleanedUp) return;
     const { action, frames: chunk } = e.data;
@@ -818,7 +805,6 @@ function createWorkerGifVideoElement(worker, initData) {
     }
   }
 
-  // Duck-typed HTMLVideoElement API
   canvas.load = () => {};
   canvas.playbackRate = 1.0;
   canvas.seeking = false;
@@ -893,13 +879,6 @@ function createWorkerGifVideoElement(worker, initData) {
 // Public GIF Player Loader
 // ============================================================================
 
-/**
- * Loads and plays animated GIFs with zero UI lag:
- * 1. Checks user setting: if custom GIF player is disabled, renders native <img> instantly.
- * 2. Uses native WebCodecs ImageDecoder when supported (hardware-accelerated, zero-copy).
- * 3. Falls back to background Web Worker for omggif decoding (no main-thread blocking).
- * 4. Displays frame 0 in <10ms and only starts playback when visibly in the viewport.
- */
 export async function loadGifPlayer({
   item,
   url,
@@ -914,7 +893,6 @@ export async function loadGifPlayer({
     return;
   }
 
-  // Fast escape hatch: user prefers standard native <img> GIFs
   if (window.pawCustomGifPlayer === false) {
     const img = document.createElement("img");
     img.className = "post-media";
@@ -943,11 +921,10 @@ export async function loadGifPlayer({
   item._abortController = abortController;
   const signal = abortController.signal;
 
-  // Immediate poster thumbnail preview for Kemono / Pawchive
   const path = item.dataset.path;
   const isImagePath = path && /\.(jpe?g|png|webp|gif|avif)$/i.test(path);
   let posterImg = null;
-  if (isImagePath && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+  if (isImagePath && !path.startsWith("http://") && !path.startsWith("https://") && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
     posterImg = document.createElement("img");
     posterImg.className = "post-media";
     posterImg.loading = "eager";
@@ -966,13 +943,11 @@ export async function loadGifPlayer({
     const totalSize = parseInt(response.headers.get("content-length") || "0", 10);
     let fullBuffer;
 
-    // Fast path for small files (< 3MB): direct ArrayBuffer fetch
     if (totalSize > 0 && totalSize < 3 * 1024 * 1024) {
       const ab = await response.arrayBuffer();
       if (signal.aborted) return;
       fullBuffer = new Uint8Array(ab);
     } else {
-      // Stream larger files with throttled progress UI updates
       const reader = response.body.getReader();
       const chunks = [];
       let downloadedBytes = 0;
@@ -1010,11 +985,9 @@ export async function loadGifPlayer({
       }
     }
 
-    // Fast header parse with GifReader (~1ms) to verify frame count and durations
     const gifReader = new GifReader(fullBuffer);
     const numFrames = gifReader.numFrames();
 
-    // 1-frame static GIF: render as standard <img> with zero overhead
     if (numFrames <= 1) {
       if (posterImg) posterImg.remove();
 
@@ -1044,7 +1017,6 @@ export async function loadGifPlayer({
       return;
     }
 
-    // Compute frame timing info from header in 1ms
     const width = gifReader.width;
     const height = gifReader.height;
     const frames = [];
@@ -1067,11 +1039,10 @@ export async function loadGifPlayer({
 
     let canvas = null;
 
-    // Check for native WebCodecs ImageDecoder support
     let useImageDecoder = false;
     if (typeof ImageDecoder !== "undefined") {
       try {
-        useImageDecoder = await ImageDecoder.isTypeSupported("image/gif");
+        useImageDecoder = await ImageDecoder.isTypeSupported({ type: "image/gif" });
       } catch (_) {
         useImageDecoder = false;
       }
@@ -1080,7 +1051,6 @@ export async function loadGifPlayer({
     if (signal.aborted) return;
 
     if (useImageDecoder) {
-      // --- Engine 1: Native WebCodecs ImageDecoder ---
       const decoder = new ImageDecoder({
         data: fullBuffer,
         type: "image/gif",
@@ -1101,7 +1071,6 @@ export async function loadGifPlayer({
         frames,
       });
     } else {
-      // --- Engine 2: Background Web Worker fallback ---
       const workerBlob = new Blob([WORKER_CODE], { type: "application/javascript" });
       const workerUrl = URL.createObjectURL(workerBlob);
       const worker = new Worker(workerUrl);
@@ -1117,7 +1086,6 @@ export async function loadGifPlayer({
         };
         worker.onerror = (err) => reject(err);
 
-        // Transfer fullBuffer to worker for zero-copy memory transfer
         worker.postMessage({ action: "init", buffer: fullBuffer }, [fullBuffer.buffer]);
       });
 
@@ -1139,7 +1107,6 @@ export async function loadGifPlayer({
       return;
     }
 
-    // Remove poster placeholder
     if (posterImg) {
       posterImg.remove();
       posterImg = null;
@@ -1151,13 +1118,6 @@ export async function loadGifPlayer({
     if (progressOverlay) progressOverlay.style.display = "none";
     if (typeof syncCarouselClones === "function") syncCarouselClones(item);
     if (playbackObserver) playbackObserver.observe(canvas);
-
-    // Only start autoplay if the element is currently visible in the viewport!
-    const rect = canvas.getBoundingClientRect();
-    const inView = rect.top < window.innerHeight && rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0;
-    if (inView) {
-      canvas.play().catch(() => {});
-    }
 
     item._cleanupGif = () => {
       if (playbackObserver) playbackObserver.unobserve(canvas);
@@ -1176,7 +1136,6 @@ export async function loadGifPlayer({
       posterImg = null;
     }
 
-    // Fallback to full-resolution native GIF rather than a low-res static thumbnail!
     const fallbackImg = document.createElement("img");
     fallbackImg.className = "post-media";
     fallbackImg.loading = "eager";
@@ -1187,10 +1146,9 @@ export async function loadGifPlayer({
       if (typeof syncCarouselClones === "function") syncCarouselClones(item);
     };
     fallbackImg.onerror = () => {
-      // Only try thumbnail if the full-resolution file URL failed over the network
       const p = item.dataset.path;
       const isImg = p && /\.(jpe?g|png|webp|gif)$/i.test(p);
-      if (isImg && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
+      if (isImg && !p.startsWith("http://") && !p.startsWith("https://") && (state.currentSite === "pawchive" || state.currentSite === "kemono")) {
         const thumbImg = document.createElement("img");
         thumbImg.className = "post-media";
         thumbImg.loading = "eager";
@@ -1224,6 +1182,5 @@ export async function loadGifPlayer({
     };
 
     item.appendChild(fallbackImg);
-    return;
   }
 }

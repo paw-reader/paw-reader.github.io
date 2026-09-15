@@ -10,6 +10,7 @@ export function updateCreatorsLoading(text) {
   if (!creatorsLoading) return;
   creatorsLoading.innerHTML = `<span class="loading-spinner"></span><span>${escapeHtml(text)}</span>`;
 }
+
 export const searchInput = document.getElementById("creator-search");
 export const searchClearBtn = document.getElementById("creator-search-clear");
 
@@ -21,6 +22,7 @@ export function clearSearch() {
     searchClearBtn.style.display = "none";
   }
 }
+
 export const sortSelect = document.getElementById("creator-sort");
 export const sortDirBtn = document.getElementById("creator-sort-dir");
 export const serviceFilterSelect = document.getElementById("creator-service-filter");
@@ -96,7 +98,7 @@ export function renderServiceFilters(site = state.currentSite, force = false) {
 export function syncDiscoveredServices(discoveredServices, site = state.currentSite) {
   if (!serviceFilterSelect || currentRenderedFilterSite !== site) return;
   const existingValues = new Set(
-    Array.from(serviceFilterSelect.querySelectorAll("input[type='checkbox']")).map((cb) => cb.value)
+    Array.from(serviceFilterSelect.querySelectorAll("input:checked")).map((cb) => cb.value)
   );
 
   discoveredServices.forEach((service) => {
@@ -131,6 +133,7 @@ export function getPaginationContainers() {
   if (paginationContainer) containers.push(paginationContainer);
   return containers;
 }
+
 async function fetchWithRetry(url, options = {}, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
@@ -148,6 +151,7 @@ async function fetchWithRetry(url, options = {}, retries = 2) {
 }
 
 let coomerFetchSeq = 0;
+let creatorsLoadSeq = 0;
 
 async function fetchAndRenderCoomerCreators() {
   const seq = ++coomerFetchSeq;
@@ -286,18 +290,23 @@ export async function loadCreators() {
     }
     return;
   }
-  state.loadedCreatorsSite = state.currentSite;
+
+  const loadSeq = ++creatorsLoadSeq;
+  const currentSiteAtCall = state.currentSite;
+
+  state.loadedCreatorsSite = currentSiteAtCall;
   state.allCreators = [];
   if (creatorsList) creatorsList.innerHTML = "";
   if (creatorsLoading) {
-    const site = state.currentSite ? (state.currentSite.charAt(0).toUpperCase() + state.currentSite.slice(1)) : "Creators";
+    const site = currentSiteAtCall ? (currentSiteAtCall.charAt(0).toUpperCase() + currentSiteAtCall.slice(1)) : "Creators";
     updateCreatorsLoading(`Loading ${site} creators...`);
     creatorsLoading.classList.add("active");
   }
   startProgress();
 
   try {
-    const res = await fetchWithRetry(`${PROXY_URL}/${state.currentSite}/api/v1/creators`);
+    const res = await fetchWithRetry(`${PROXY_URL}/${currentSiteAtCall}/api/v1/creators`);
+    if (loadSeq !== creatorsLoadSeq || state.currentSite !== currentSiteAtCall) return;
     if (!res.ok) throw new Error("Failed to fetch creators: " + res.status + " " + res.statusText);
     const rawCreators = await res.json();
     const uniqueCreators = new Map();
@@ -348,16 +357,19 @@ export async function loadCreators() {
         services.add(c.service);
         if (c.allPlatforms) c.allPlatforms.forEach((p) => services.add(p.service));
       });
-      syncDiscoveredServices(Array.from(services).sort(), state.currentSite);
+      syncDiscoveredServices(Array.from(services).sort(), currentSiteAtCall);
     }
 
     filterAndSortCreators();
   } catch (error) {
+    if (loadSeq !== creatorsLoadSeq) return;
     console.error("Error fetching creators:", error);
     if (creatorsLoading) creatorsLoading.innerHTML = `<span>Failed to load creators.</span>`;
   } finally {
-    if (creatorsLoading) creatorsLoading.classList.remove("active");
-    stopProgress();
+    if (loadSeq === creatorsLoadSeq) {
+      if (creatorsLoading) creatorsLoading.classList.remove("active");
+      stopProgress();
+    }
   }
 }
 
@@ -447,20 +459,26 @@ export function buildCreatorCard(creator, checkedServices = []) {
   }
 
   const initialPlatform = creator.allPlatforms ? creator.allPlatforms[currentPlatformIndex] : creator;
-
   card.style.background = getServiceColor(initialPlatform.service);
 
   const img = document.createElement("img");
   img.className = "creator-image";
-  if (state.currentSite === "cum") {
-    if (initialPlatform.avatarThumbhash === null || initialPlatform.avatarThumbhash === false) {
-      img.style.display = "none";
+
+  function setAvatar(p) {
+    if (state.currentSite === "cum") {
+      if (p.avatarThumbhash === null || p.avatarThumbhash === false) {
+        img.style.display = "none";
+        img.src = "";
+      } else {
+        img.src = `${PROXY_URL}/cum/creator-avatar/${p.service}/${p.id}/avatar.webp`;
+        img.style.display = "";
+      }
     } else {
-      img.src = `${PROXY_URL}/cum/creator-avatar/${initialPlatform.service}/${initialPlatform.id}/avatar.webp`;
+      img.src = `${PROXY_URL}/${state.currentSite}/icons/${p.service}/${p.id}`;
+      img.style.display = "";
     }
-  } else {
-    img.src = `${PROXY_URL}/${state.currentSite}/icons/${initialPlatform.service}/${initialPlatform.id}`;
   }
+
   img.loading = "lazy";
   img.onload = () => {
     if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
@@ -470,6 +488,8 @@ export function buildCreatorCard(creator, checkedServices = []) {
   img.onerror = () => {
     img.style.display = "none";
   };
+
+  setAvatar(initialPlatform);
 
   const name = document.createElement("div");
   name.className = "creator-name";
@@ -515,17 +535,7 @@ export function buildCreatorCard(creator, checkedServices = []) {
       e.stopPropagation();
       currentPlatformIndex = (currentPlatformIndex + 1) % creator.allPlatforms.length;
       const newPlatform = creator.allPlatforms[currentPlatformIndex];
-      if (state.currentSite === "cum") {
-        if (newPlatform.avatarThumbhash === null || newPlatform.avatarThumbhash === false) {
-          img.style.display = "none";
-        } else {
-          img.src = `${PROXY_URL}/cum/creator-avatar/${newPlatform.service}/${newPlatform.id}/avatar.webp`;
-          img.style.display = "block";
-        }
-      } else {
-        img.src = `${PROXY_URL}/${state.currentSite}/icons/${newPlatform.service}/${newPlatform.id}`;
-        img.style.display = "block";
-      }
+      setAvatar(newPlatform);
       name.textContent = newPlatform.name;
       service.textContent = newPlatform.service;
       favorites.textContent = `⭐ ${getFavCount(newPlatform).toLocaleString()}`;
@@ -557,7 +567,7 @@ export function renderCreatorsPage() {
   });
 
   const totalPages = Math.ceil(state.filteredCreators.length / state.creatorsPerPage);
-  if (state.creatorPage > totalPages) state.creatorPage = totalPages;
+  if (state.creatorPage > totalPages) state.creatorPage = Math.max(1, totalPages);
   if (state.creatorPage < 1) state.creatorPage = 1;
 
   const start = (state.creatorPage - 1) * state.creatorsPerPage;

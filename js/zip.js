@@ -43,6 +43,9 @@ export function closeZipGallery() {
   if (zipContent) {
     zipContent.querySelectorAll("video, audio").forEach((media) => {
       try {
+        if (typeof media._cleanupCustomPlayer === "function") {
+          media._cleanupCustomPlayer();
+        }
         media.pause();
         if (playbackObserver) playbackObserver.unobserve(media);
         media.removeAttribute("src");
@@ -66,6 +69,7 @@ export function closeZipGallery() {
   if (scanBadge) scanBadge.remove();
   if (window.zipMediaObserver) {
     window.zipMediaObserver.disconnect();
+    window.zipMediaObserver = null;
   }
   state.currentZipObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   state.currentZipObjectUrls = [];
@@ -108,9 +112,6 @@ export function updateZipNavVisibility(e) {
   }
 }
 
-/**
- * Returns metadata about the currently visible active media item in either 1D or 2D mode.
- */
 export function getActiveMediaItem() {
   if (!zipContent) return null;
 
@@ -141,7 +142,6 @@ export function getActiveMediaItem() {
     const count = nonClones.length || parseInt(activeRow.dataset.mediaCount, 10) || items.length;
     const pool = nonClones.length > 0 ? nonClones : items;
 
-    // If activeRow has clones and scrollLeft is 0 (initial unaligned state), align it to slide 1
     if (activeRow.children.length > 2 && activeRow.scrollLeft === 0 && count > 1) {
       alignFolderRowToFirstSlide(activeRow, count);
     }
@@ -186,7 +186,6 @@ export function getActiveMediaItem() {
     };
   }
 
-  // 1D Carousel
   const items = Array.from(zipContent.querySelectorAll(".media-item"));
   if (items.length === 0) return null;
   const count = parseInt(zipContent.dataset.mediaCount || "0", 10) || items.length;
@@ -212,9 +211,6 @@ export function getActiveMediaItem() {
   };
 }
 
-/**
- * Updates the File Details Info Sheet with information from the active slide element.
- */
 export function updateActiveSlideInfo(mediaItem) {
   const modal = document.getElementById("zip-file-info-modal");
   if (!modal) return;
@@ -263,7 +259,6 @@ export function updateActiveSlideInfo(mediaItem) {
     fSizeRow.style.display = size ? "inline-flex" : "none";
   }
 
-  // File extension badge
   const extMatch = filename.match(/\.([a-zA-Z0-9]+)$/);
   const ext = extMatch ? extMatch[1].toUpperCase() : "";
   if (fExtEl && fExtRow) {
@@ -275,7 +270,6 @@ export function updateActiveSlideInfo(mediaItem) {
     }
   }
 
-  // Dimensions (resolution)
   function checkDimensions() {
     let dimensions = "";
     const img = active.querySelector("img");
@@ -332,9 +326,6 @@ export function updateActiveSlideInfo(mediaItem) {
   }
 }
 
-/**
- * Helper to aggregate immediate subfolders under a given prefix across all folder rows.
- */
 function getSubfoldersUnder(allFolders, prefix) {
   const subMap = new Map();
   allFolders.forEach((f) => {
@@ -365,9 +356,6 @@ function getSubfoldersUnder(allFolders, prefix) {
   );
 }
 
-/**
- * Closes the active directory dropdown in zip-nav-tabs.
- */
 export function closeZipNavDropdown() {
   if (activeZipNavDropdown) {
     if (typeof activeZipNavDropdown._cleanup === "function") {
@@ -383,9 +371,6 @@ export function closeZipNavDropdown() {
   });
 }
 
-/**
- * Instantly jumps the gallery to a target folder row without triggering intermediate media loads.
- */
 export function jumpToFolder(folderIdx) {
   if (!zipContent) return;
   const rows = Array.from(zipContent.querySelectorAll(".zip-folder-row"));
@@ -393,7 +378,6 @@ export function jumpToFolder(folderIdx) {
 
   closeZipNavDropdown();
 
-  // Cancel any ongoing vertical smooth scroll
   if (zipContent._animIdY) {
     cancelAnimationFrame(zipContent._animIdY);
     zipContent._animIdY = null;
@@ -403,10 +387,8 @@ export function jumpToFolder(folderIdx) {
   const targetFolderRow = rows[folderIdx];
   if (!targetFolderRow) return;
 
-  // 1. Flag jumping mode so observer callback ignores intermediate rows
   window._isJumpingZipGallery = true;
 
-  // 2. Reset horizontal scroll on target row to its first non-clone file
   if (targetFolderRow._animId) {
     cancelAnimationFrame(targetFolderRow._animId);
     targetFolderRow._animId = null;
@@ -416,36 +398,27 @@ export function jumpToFolder(folderIdx) {
   const count = targetFolderRow.dataset.mediaCount ? parseInt(targetFolderRow.dataset.mediaCount, 10) : 0;
   alignFolderRowToFirstSlide(targetFolderRow, count);
 
-  // 3. Jump vertically directly and accurately to target folder row without window-scrolling side effects
   const rowHeight = targetFolderRow.clientHeight || zipContent.clientHeight || window.innerHeight;
   const targetY = targetFolderRow.offsetTop !== undefined && targetFolderRow.offsetTop >= 0
     ? targetFolderRow.offsetTop
     : folderIdx * rowHeight;
 
   zipContent.scrollTop = targetY;
-
-  // 4. Update HUD immediately
   updateZipIndicatorsAndHUD();
 
-  // 5. Restore observer processing in next frame once layout has settled
   requestAnimationFrame(() => {
     window._isJumpingZipGallery = false;
     updateZipIndicatorsAndHUD();
   });
 }
 
-/**
- * Instantly jumps the active folder row to a target file without triggering intermediate media loads.
- */
 export function jumpToFile(targetRow, fileIdx) {
   if (!targetRow) return;
 
   closeZipNavDropdown();
 
-  // 1. Flag jumping mode
   window._isJumpingZipGallery = true;
 
-  // 2. Jump horizontally instantly and precisely to the non-clone target slide
   if (targetRow._animId) {
     cancelAnimationFrame(targetRow._animId);
     targetRow._animId = null;
@@ -460,19 +433,14 @@ export function jumpToFile(targetRow, fileIdx) {
   const targetX = targetSlide ? targetSlide.offsetLeft : (count > 1 ? (fileIdx + 1) * itemWidth : fileIdx * itemWidth);
   targetRow.scrollLeft = targetX;
 
-  // 3. Update HUD immediately
   updateZipIndicatorsAndHUD();
 
-  // 4. Restore observer processing in next frame
   requestAnimationFrame(() => {
     window._isJumpingZipGallery = false;
     updateZipIndicatorsAndHUD();
   });
 }
 
-/**
- * Opens a directory dropdown below the clicked nav tab button, listing child folders or files.
- */
 export function openZipNavDropdown(btn, seg, active) {
   const isAlreadyOpen = btn.classList.contains("open");
   closeZipNavDropdown();
@@ -504,7 +472,6 @@ export function openZipNavDropdown(btn, seg, active) {
   const targetFolderIdx = segFolder ? segFolder.idx : currentFolderIdx;
   const targetRow = rows[targetFolderIdx] || currentActive?.folderRow || rows[0];
 
-  // Create dropdown element
   const dropdown = document.createElement("div");
   dropdown.id = "zip-nav-dropdown";
   dropdown.className = "zip-nav-dropdown";
@@ -534,7 +501,6 @@ export function openZipNavDropdown(btn, seg, active) {
   };
 
   if (seg.type === "file") {
-    // Show files inside current active folder row
     const items = Array.from(targetRow.querySelectorAll(".media-item:not([data-is-clone='true'])"));
     appendHeader(`Files in ${seg.parentName || active.folderName || seg.name}`, items.length);
 
@@ -571,11 +537,9 @@ export function openZipNavDropdown(btn, seg, active) {
       dropdown.appendChild(itemBtn);
     });
   } else {
-    // Check for immediate child folders under queryPrefix
     let subfolders = getSubfoldersUnder(allFolders, seg.queryPrefix);
     let headerTitle = `Folders in ${seg.parentName || seg.name}`;
 
-    // If root segment and only 1 subfolder that matches seg.name, peek into that folder
     if (seg.type === "root" && subfolders.length === 1 && subfolders[0].name.toLowerCase() === seg.name.toLowerCase()) {
       subfolders = getSubfoldersUnder(allFolders, subfolders[0].fullPrefix);
       headerTitle = `Folders in ${seg.name}`;
@@ -618,7 +582,6 @@ export function openZipNavDropdown(btn, seg, active) {
         dropdown.appendChild(itemBtn);
       });
     } else {
-      // Leaf directory with files directly inside
       const items = Array.from(targetRow.querySelectorAll(".media-item:not([data-is-clone='true'])"));
       appendHeader(`Files in ${seg.name}`, items.length);
 
@@ -657,7 +620,6 @@ export function openZipNavDropdown(btn, seg, active) {
     }
   }
 
-  // Click outside and escape listeners
   const onDocClick = (e) => {
     if (e.target.closest("#zip-nav-dropdown") || e.target.closest(".zip-nav-tab-btn")) return;
     closeZipNavDropdown();
@@ -683,9 +645,6 @@ export function openZipNavDropdown(btn, seg, active) {
   activeZipNavDropdown = dropdown;
 }
 
-/**
- * Updates the nav tab inside zip-nav to display the main root folder, directory path, and current file.
- */
 export function updateZipNavTabs(active) {
   const tabs = document.getElementById("zip-nav-tabs");
   if (!tabs) return;
@@ -702,7 +661,6 @@ export function updateZipNavTabs(active) {
 
   tabs.classList.remove("hidden");
 
-  // If directory path hasn't changed, just update the currently viewed file label
   if (tabs.dataset.currentPath === activePath) {
     const fileLabel = tabs.querySelector(".zip-nav-tab-btn[data-type='file'] .zip-nav-tab-label");
     if (fileLabel && active.filename && fileLabel.textContent !== active.filename) {
@@ -756,7 +714,6 @@ export function updateZipNavTabs(active) {
     }
   }
 
-  // 2. Currently Viewed File
   if (active.filename) {
     segments.push({
       name: active.filename,
@@ -780,7 +737,6 @@ export function updateZipNavTabs(active) {
         openZipNavDropdown(btn, seg, getActiveMediaItem() || active);
       });
     } else {
-      // Main root folder is not expandable since its contents are selectable via directory segments
       btn.innerHTML = `<span class="zip-nav-tab-label" title="${escapeHtml(seg.name)}">${escapeHtml(seg.name)}</span>`;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -799,14 +755,10 @@ export function updateZipNavTabs(active) {
   });
 }
 
-/**
- * Updates top indicator text, title, folder prev/next buttons, live info modal, and nav tabs.
- */
 export function updateZipIndicatorsAndHUD() {
   const active = getActiveMediaItem();
   if (!active) return;
 
-  // Update Indicator
   if (zipIndicator) {
     zipIndicator.style.display = "";
     if (active.totalFolders > 1) {
@@ -816,24 +768,18 @@ export function updateZipIndicatorsAndHUD() {
     }
   }
 
-  // Update Title
   if (zipTitle && active.folderName) {
     zipTitle.textContent = active.folderName;
   }
 
-  // Update Nav Tabs with Directory Path
   updateZipNavTabs(active);
 
-  // If Info Modal is currently open, keep it updated in real-time
   const modal = document.getElementById("zip-file-info-modal");
   if (modal && modal.classList.contains("expanded")) {
     updateActiveSlideInfo(active.item);
   }
 }
 
-/**
- * Toggles the File Details Modal.
- */
 export function toggleZipFileInfoModal(force) {
   closeZipNavDropdown();
   const modal = document.getElementById("zip-file-info-modal");
@@ -898,10 +844,6 @@ export function smoothScrollY(element, targetTop, duration = 160, onComplete = n
   element._animIdY = requestAnimationFrame(step);
 }
 
-/**
- * Vertically scrolls the gallery container to the previous or next folder row.
- * Supports rapid clicks/spamming and wrap-around across folders.
- */
 export function navigateFolder(direction) {
   if (!zipContent || !zipContent.classList.contains("gallery-2d-mode")) return;
   const rows = Array.from(zipContent.querySelectorAll(".zip-folder-row"));
@@ -921,7 +863,6 @@ export function navigateFolder(direction) {
   }
 
   let nextIndex = direction === "down" ? baseIndex + 1 : baseIndex - 1;
-  // Wrap around across folders
   nextIndex = (nextIndex + rows.length) % rows.length;
 
   zipContent._targetFolderIndex = nextIndex;
@@ -962,9 +903,6 @@ export function navigateFolder(direction) {
   });
 }
 
-/**
- * Aligns a folder row's horizontal scroll position to the first actual media slide (skipping cloneLast).
- */
 export function alignFolderRowToFirstSlide(folderRow, filesCount) {
   if (!folderRow || filesCount <= 1) return;
 
@@ -976,7 +914,6 @@ export function alignFolderRowToFirstSlide(folderRow, filesCount) {
   if (firstSlide && firstSlide.offsetLeft > 0) {
     targetX = firstSlide.offsetLeft;
   } else {
-    // 100% item width + 20px gap defined in style.css
     targetX = itemWidth + 20;
   }
 
@@ -1001,9 +938,6 @@ export function alignFolderRowToFirstSlide(folderRow, filesCount) {
   });
 }
 
-/**
- * Creates and configures a single 2D matrix folder row element with slides, circular clones, and gestures.
- */
 export function createFolderRowElement(group, folderIdx, options = {}) {
   const pCount = Math.max(1, window.pawPreloadCount || 1);
   if (!window.zipMediaObserver) {
@@ -1055,7 +989,6 @@ export function createFolderRowElement(group, folderIdx, options = {}) {
     window.zipMediaObserver.observe(slide);
   });
 
-  // Infinite loop clones for horizontal navigation
   if (group.files.length > 1 && folderRow.children.length > 1) {
     const firstChild = folderRow.children[0];
     const lastChild = folderRow.children[folderRow.children.length - 1];
@@ -1141,14 +1074,10 @@ export function createFolderRowElement(group, folderIdx, options = {}) {
   return folderRow;
 }
 
-/**
- * Progressively appends or inserts a folder group into the active 2D matrix gallery in sorted order.
- */
 export function appendFolderGroupTo2DMatrix(group, options = {}) {
   if (!zipContent) return false;
   if (!group || !group.files || group.files.length === 0) return false;
 
-  // If gallery-2d-mode is not set or zipContent has no rows, initialize cleanly
   if (!zipContent.classList.contains("gallery-2d-mode") || zipContent.querySelectorAll(".zip-folder-row").length === 0) {
     render2DMatrixGallery([group], options);
     return true;
@@ -1157,12 +1086,10 @@ export function appendFolderGroupTo2DMatrix(group, options = {}) {
   const targetPath = group.folderPath || group.folderName;
   const existingRows = Array.from(zipContent.querySelectorAll(".zip-folder-row"));
 
-  // Check if row already exists
   if (existingRows.some((r) => (r.dataset.folderPath || r.dataset.folderName) === targetPath)) {
     return false;
   }
 
-  // Find alphabetical / natural insertion point
   let insertBeforeRow = null;
   for (const r of existingRows) {
     const p = r.dataset.folderPath || r.dataset.folderName || "";
@@ -1180,7 +1107,6 @@ export function appendFolderGroupTo2DMatrix(group, options = {}) {
   }
   alignFolderRowToFirstSlide(row, group.files.length);
 
-  // Re-index folderIdx
   const updatedRows = Array.from(zipContent.querySelectorAll(".zip-folder-row"));
   updatedRows.forEach((r, idx) => {
     r.dataset.folderIdx = String(idx);
@@ -1190,9 +1116,6 @@ export function appendFolderGroupTo2DMatrix(group, options = {}) {
   return true;
 }
 
-/**
- * Non-blocking progress indicator in the gallery HUD for background folder discovery.
- */
 export function updateZipScanProgress(statusText) {
   let badge = document.getElementById("zip-bg-scan-badge");
   if (!statusText) {
@@ -1221,17 +1144,6 @@ export function updateZipScanProgress(statusText) {
   badge.style.opacity = "1";
 }
 
-/**
- * Universal 2D Matrix Gallery Renderer:
- * - Vertical scrolling (Up/Down) switches between folder rows with wrap-around.
- * - Horizontal scrolling (Left/Right) switches between files in the current folder with carousel clones and wrap-around.
- *
- * folderGroups: Array of {
- *   folderName: string,
- *   folderPath?: string,
- *   files: Array<{ filename: string, folder?: string, size?: number, link?: string, loadMedia: Function }>
- * }
- */
 export function render2DMatrixGallery(folderGroups, options = {}) {
   if (!zipContent) return;
 
@@ -1337,6 +1249,10 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
       const chunks = [];
 
       while (true) {
+        if (signal.aborted) {
+          try { reader.cancel(); } catch (_) {}
+          throw new DOMException("Aborted", "AbortError");
+        }
         const { done, value } = await reader.read();
         if (done) break;
         chunks.push(value);
@@ -1365,9 +1281,7 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
     state.currentZipObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     state.currentZipObjectUrls = [];
 
-    // Group image, video, and audio files by directory/folder path
     const folderMap = new Map();
-
     const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "svg"];
     const videoExts = ["mp4", "webm", "mov", "m4v", "ogv", "mkv"];
     const audioExts = ["mp3", "ogg", "wav", "m4a", "flac"];
@@ -1399,8 +1313,6 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
       });
     });
 
-    // If there are multiple folders but each folder has only 1 file (or each video is inside an isolated folder),
-    // flatten them into a single album so the user gets a full horizontal carousel with proper count (e.g. 1 / 5).
     if (folderMap.size > 1 && Array.from(folderMap.values()).every((files) => files.length === 1)) {
       const flattenedFiles = [];
       folderMap.forEach((files) => flattenedFiles.push(...files));
@@ -1424,7 +1336,7 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
           filename: f.name,
           folder: folderName,
           size: f.size,
-          link: "", // Local zip entries have no external cloud link
+          link: "",
           loadMedia: async (container, sig) => {
             if (container.dataset.loaded === "true") return;
 
@@ -1447,6 +1359,12 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
                     container.appendChild(cloneVid);
                     attachCustomVideoPlayer(cloneVid, container);
                     if (playbackObserver) playbackObserver.observe(cloneVid);
+                  } else {
+                    const placeholder = document.createElement("div");
+                    placeholder.className = "post-media";
+                    placeholder.style.cssText = "display: flex; align-items: center; justify-content: center; background: #000; width: 100%; height: 100%;";
+                    placeholder.innerHTML = '<svg viewBox="0 0 24 24" width="48" height="48" fill="rgba(255,255,255,0.35)"><path d="M8 5v14l11-7z"/></svg>';
+                    container.appendChild(placeholder);
                   }
                 } else if (media.tagName.toLowerCase() === "audio") {
                   if (container.dataset.isClone !== "true") {
@@ -1483,7 +1401,14 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
               if (isVideo) {
                 allMatchingContainers.forEach((target) => {
                   target.querySelectorAll("img, video, audio, .video-player-wrapper").forEach((el) => el.remove());
-                  if (target.dataset.isClone === "true") return;
+                  if (target.dataset.isClone === "true") {
+                    const placeholder = document.createElement("div");
+                    placeholder.className = "post-media";
+                    placeholder.style.cssText = "display: flex; align-items: center; justify-content: center; background: #000; width: 100%; height: 100%;";
+                    placeholder.innerHTML = '<svg viewBox="0 0 24 24" width="48" height="48" fill="rgba(255,255,255,0.35)"><path d="M8 5v14l11-7z"/></svg>';
+                    target.appendChild(placeholder);
+                    return;
+                  }
 
                   const video = document.createElement("video");
                   video.className = "post-media";
