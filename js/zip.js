@@ -760,11 +760,12 @@ export function updateZipIndicatorsAndHUD() {
   if (!active) return;
 
   if (zipIndicator) {
-    zipIndicator.style.display = "";
-    if (active.totalFolders > 1) {
-      zipIndicator.textContent = `${active.fileIdx + 1} / ${active.totalFiles} • Folder ${active.folderIdx + 1} / ${active.totalFolders}`;
-    } else {
+    if (active.totalFiles > 1) {
+      zipIndicator.style.display = "";
       zipIndicator.textContent = `${active.fileIdx + 1} / ${active.totalFiles}`;
+    } else {
+      zipIndicator.style.display = "none";
+      zipIndicator.textContent = "";
     }
   }
 

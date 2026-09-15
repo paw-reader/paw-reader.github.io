@@ -13,10 +13,10 @@
 import { getActiveMediaItem } from "./zip.js";
 
 export const DEFAULT_EDGE_CONFIG = {
-  top: 0.05,
-  bottom: 0.05,
-  left: 0.05,
-  right: 0.05
+  top: 0.10,
+  bottom: 0.10,
+  left: 0.10,
+  right: 0.10
 };
 
 export const edgeConfig = { ...DEFAULT_EDGE_CONFIG };
