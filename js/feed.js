@@ -883,7 +883,9 @@ export async function loadMediaWithProgress(item) {
   const path = item.dataset.path;
   const isImageSite = state.currentSite === "kemono" || state.currentSite === "pawchive";
   const isImageFile = path && /\.(jpe?g|png|webp|gif)$/i.test(path);
-  if (isImageSite && isImageFile && !path.startsWith("http://") && !path.startsWith("https://")) {
+  // Progressive loading (thumbnail first, full-res upgrade later) is opt-in;
+  // by default the full-resolution image is fetched directly.
+  if (isImageSite && isImageFile && !path.startsWith("http://") && !path.startsWith("https://") && window.pawProgressiveImages) {
     const thumbUrl = `${PROXY_URL}/${state.currentSite}/thumbnail/data${path}`;
     img.src = thumbUrl;
     img.onload = () => {

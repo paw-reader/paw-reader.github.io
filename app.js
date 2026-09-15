@@ -63,6 +63,7 @@ window.pawHideCovers = localStorage.getItem('paw_hide_covers') === 'true';
 const savedPreload = localStorage.getItem('paw_preload_count');
 window.pawPreloadCount = savedPreload !== null ? parseInt(savedPreload, 10) : 1;
 window.pawCustomGifPlayer = localStorage.getItem('paw_custom_gif_player') !== 'false';
+window.pawProgressiveImages = localStorage.getItem('paw_progressive_images') === 'true';
 if (window.pawAnimationsDisabled) document.body.classList.add('no-animations');
 
 function formatWorkerVersion(raw) {
@@ -126,6 +127,15 @@ if (settingDisableAnimations) {
     } else {
       document.body.classList.remove('no-animations');
     }
+  });
+}
+
+const settingProgressiveImages = document.getElementById('setting-progressive-images');
+if (settingProgressiveImages) {
+  settingProgressiveImages.checked = window.pawProgressiveImages;
+  settingProgressiveImages.addEventListener('change', (e) => {
+    window.pawProgressiveImages = e.target.checked;
+    localStorage.setItem('paw_progressive_images', window.pawProgressiveImages);
   });
 }
 
