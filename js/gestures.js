@@ -313,7 +313,6 @@ export function initGestures() {
   document.addEventListener(
     "wheel",
     (e) => {
-      if (!window.pawAnimationsDisabled) return;
       if (shouldIgnoreFeedGestures(e)) return;
 
       const textCard = e.target.closest(".post-text-card");
@@ -322,6 +321,27 @@ export function initGestures() {
         const atBottom = textCard.scrollHeight - textCard.scrollTop <= textCard.clientHeight + 1 && e.deltaY > 0;
         if (!atTop && !atBottom) return;
       }
+
+      const carousel = e.target.closest(".media-carousel");
+      const zipC = e.target.closest("#zip-content");
+      const feedEl = e.target.closest("#feed");
+
+      const inZip = zipC && zipViewer && !zipViewer.classList.contains("hidden");
+      const feedActive = feedEl && feedView && feedView.classList.contains("active") &&
+        feed && feed.querySelector(".post-card");
+      const continuous = !!(feedEl && feedEl.classList.contains("continuous-scroll"));
+
+      // Only hijack the wheel where we actually navigate; everything else
+      // (continuous-scroll feeds, other views) scrolls natively.
+      let hijack = false;
+      if (inZip) {
+        hijack = true;
+      } else if (carousel) {
+        hijack = !continuous || Math.abs(e.deltaX) >= Math.abs(e.deltaY);
+      } else if (feedActive) {
+        hijack = !continuous;
+      }
+      if (!hijack) return;
 
       if (e.cancelable) e.preventDefault();
 
@@ -343,11 +363,7 @@ export function initGestures() {
 
       if (stepsX === 0 && stepsY === 0) return;
 
-      const carousel = e.target.closest(".media-carousel");
-      const zipC = e.target.closest("#zip-content");
-      const feedEl = e.target.closest("#feed");
-
-      if (zipC && zipViewer && !zipViewer.classList.contains("hidden")) {
+      if (inZip) {
         if (zipC.classList.contains("gallery-2d-mode")) {
           const active = getActiveMediaItem();
           if (Math.abs(stepsY) >= Math.abs(stepsX)) {
@@ -370,19 +386,26 @@ export function initGestures() {
           navigateCarousel(zipC, steps > 0 ? "right" : "left", count);
         }
         return;
-      } else if (carousel && Math.abs(wheelAccumX) > Math.abs(wheelAccumY)) {
+      } else if (carousel && !inZip && Math.abs(wheelAccumX) > Math.abs(wheelAccumY)) {
         wheelAccumX -= stepsX * SCROLL_THRESHOLD;
         wheelAccumY = 0;
         navigateCarousel(carousel, stepsX > 0 ? "right" : "left");
-      } else if (feedEl && feedView && feedView.classList.contains("active")) {
-        if (!feed || !feed.querySelector(".post-card")) return;
+      } else if (feedActive && !continuous) {
         wheelAccumY -= stepsY * SCROLL_THRESHOLD;
 
         const h = window.innerHeight;
-        let target = Math.round(feedEl.scrollTop / h) * h;
-        target += stepsY * h;
-        target = Math.max(0, Math.min(target, feedEl.scrollHeight - feedEl.clientHeight));
-        feedEl.scrollTo({ top: target, behavior: "auto" });
+        // One notch of a standard mouse wheel is ~100px, so stepsY can exceed 1;
+        // a single wheel event must never move more than one post.
+        const step = Math.max(-1, Math.min(1, stepsY));
+        // Chain onto the in-flight target (same scheme as keyboard/edge taps)
+        // so quick successive notches accumulate instead of chasing the tween.
+        let target = feedEl.dataset.targetScroll !== undefined
+          ? parseFloat(feedEl.dataset.targetScroll)
+          : Math.round(feedEl.scrollTop / h) * h;
+        target = Math.max(0, Math.min(target + step * h, feedEl.scrollHeight - feedEl.clientHeight));
+        feedEl.dataset.targetScroll = String(target);
+        feedEl.style.scrollSnapType = "none";
+        feedEl.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? "auto" : "smooth" });
         wheelAccumX = 0;
       }
     },
