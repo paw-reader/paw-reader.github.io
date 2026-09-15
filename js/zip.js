@@ -21,6 +21,74 @@ export const closeZipFileInfo = document.getElementById("close-zip-file-info");
 let activeZipAbortController = null;
 let activeZipNavDropdown = null;
 
+// Zip entry names: archives created by tools that store names in a legacy
+// codepage (Shift-JIS, EUC-KR, GBK, CP1251...) show as mojibake when every
+// name is decoded as UTF-8 (unzipit's behavior). Score candidate decodings
+// and keep the most plausible one.
+function scoreDecodedName(text) {
+  let score = 0;
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    if (c === 0xFFFD) score -= 10;
+    else if (c < 0x20) score -= 5;
+    else if (c < 0x7F) score += 0.1;
+    else if ((c >= 0x3040 && c <= 0x30FF) || (c >= 0x4E00 && c <= 0x9FFF)) score += 2; // kana + CJK
+    else if (c >= 0xAC00 && c <= 0xD7AF) score += 2; // hangul
+    else if (c >= 0x0400 && c <= 0x04FF) score += 2; // cyrillic
+    else if (c >= 0x00C0 && c <= 0x024F) score += 1; // latin extended
+    else if ((c >= 0xFF00 && c <= 0xFFEF) || c === 0x30FB) score += 1; // fullwidth/halfwidth
+    else score -= 1;
+  }
+  return score;
+}
+
+function decodeZipEntryName(nameBytes, flags) {
+  if (!nameBytes) return "";
+  const strict = (label) => {
+    try {
+      return new TextDecoder(label, { fatal: true }).decode(nameBytes);
+    } catch (_) {
+      return null;
+    }
+  };
+  const clean = (text) => !text.includes("\uFFFD") &&
+    !Array.from(text).some((ch) => ch.codePointAt(0) < 0x20);
+  const cjkLike = (c) =>
+    (c >= 0x3040 && c <= 0x30FF) || // kana
+    (c >= 0x4E00 && c <= 0x9FFF) || // CJK ideographs
+    (c >= 0xAC00 && c <= 0xD7AF) || // hangul
+    (c >= 0xFF00 && c <= 0xFFEF);   // fullwidth/halfwidth forms
+
+  // The UTF-8 flag (bit 11) is authoritative when set; strict UTF-8 also
+  // covers tools that store UTF-8 names without setting it.
+  if (flags === undefined || !(flags & 0x800)) {
+    const utf8 = strict("utf-8");
+    if (utf8 !== null) return utf8;
+    // Multi-byte legacy codepages: accept only when the result contains the
+    // CJK/Hangul blocks these encodings produce, so accidental byte pairs
+    // don't win over later candidates.
+    for (const label of ["shift-jis", "euc-kr", "gbk", "big5"]) {
+      const text = strict(label);
+      if (text !== null && clean(text) && Array.from(text).some((ch) => cjkLike(ch.codePointAt(0)))) {
+        return text;
+      }
+    }
+  }
+  // Single-byte codepages: pick the highest-scoring clean decode.
+  let best = null;
+  let bestScore = -Infinity;
+  for (const label of ["windows-1252", "windows-1251", "ibm866", "utf-8"]) {
+    const text = strict(label);
+    if (text === null || !clean(text)) continue;
+    const score = scoreDecodedName(text);
+    if (score > bestScore) {
+      bestScore = score;
+      best = text;
+    }
+  }
+  return best ?? new TextDecoder().decode(nameBytes);
+}
+
 export function closeZipGallery() {
   if (activeZipAbortController) {
     try { activeZipAbortController.abort(); } catch (_) {}
@@ -1335,7 +1403,7 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
       unzipEntries = result.entries;
     } else {
       if (!window.JSZip) throw new Error("No zip library loaded");
-      zip = await window.JSZip.loadAsync(blob);
+      zip = await window.JSZip.loadAsync(blob, { decodeFileName: decodeZipEntryName });
     }
 
     if (zipContent) zipContent.innerHTML = "";
@@ -1349,8 +1417,11 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
 
     const entryList = [];
     if (unzipEntries) {
-      Object.keys(unzipEntries).forEach((relativePath) => {
-        entryList.push([relativePath, unzipEntries[relativePath]]);
+      // unzipit always decodes names as UTF-8; re-decode from the raw bytes
+      // so legacy codepage names (Shift-JIS, EUC-KR, GBK, CP1251...) work.
+      Object.values(unzipEntries).forEach((entry) => {
+        const name = (entry && entry.nameBytes) ? decodeZipEntryName(entry.nameBytes) : (entry ? entry.name : "");
+        entryList.push([name, entry]);
       });
     } else {
       zip.forEach((relativePath, zipEntry) => {
