@@ -939,6 +939,48 @@ export function alignFolderRowToFirstSlide(folderRow, filesCount) {
   });
 }
 
+function triggerSlideLoad(slide, signal) {
+  if (!slide) return;
+  if (slide.dataset.loaded === "true" || slide.dataset.loading === "true") return;
+  if (typeof slide._loadMedia === "function") slide._loadMedia(slide, signal);
+}
+
+// The zipMediaObserver can't preload across a row's horizontal overflow (clipped
+// slides never report as intersecting), so preload explicitly around the slide
+// that is currently centered.
+export function preloadAroundActive() {
+  if (!zipContent || window._isJumpingZipGallery) return;
+  const active = getActiveMediaItem();
+  if (!active || !active.item) return;
+  const signal = activeZipAbortController ? activeZipAbortController.signal : null;
+  const ahead = Math.max(2, (window.pawPreloadCount || 1) + 1);
+
+  const row = active.folderRow || active.item.closest(".zip-folder-row");
+  if (row) {
+    const slides = Array.from(row.querySelectorAll(".media-item:not([data-is-clone='true'])"));
+    const base = parseInt(active.item.dataset.fileIdx || "0", 10) || 0;
+    for (let k = base; k <= Math.min(slides.length - 1, base + ahead); k++) {
+      triggerSlideLoad(slides[k], signal);
+    }
+    triggerSlideLoad(slides[Math.max(0, base - 1)], signal);
+  }
+
+  const rows = Array.from(zipContent.querySelectorAll(".zip-folder-row"));
+  const rowIdx = active.folderIdx != null ? active.folderIdx : rows.indexOf(row);
+  [rowIdx + 1, rowIdx - 1].forEach((ri) => {
+    triggerSlideLoad(rows[ri] && rows[ri].querySelector(".media-item:not([data-is-clone='true'])"), signal);
+  });
+}
+
+let preloadRafId = 0;
+export function schedulePreloadAroundActive() {
+  if (preloadRafId) return;
+  preloadRafId = requestAnimationFrame(() => {
+    preloadRafId = 0;
+    preloadAroundActive();
+  });
+}
+
 export function createFolderRowElement(group, folderIdx, options = {}) {
   const pCount = Math.max(1, window.pawPreloadCount || 1);
   if (!window.zipMediaObserver) {
@@ -1049,6 +1091,7 @@ export function createFolderRowElement(group, folderIdx, options = {}) {
     }
     closeZipNavDropdown();
     updateZipIndicatorsAndHUD();
+    schedulePreloadAroundActive();
     if (!folderRow._animId && !folderRow._isTouching && group.files.length > 1) {
       clearTimeout(rowSettleTimer);
       rowSettleTimer = setTimeout(() => {
@@ -1208,6 +1251,7 @@ export function render2DMatrixGallery(folderGroups, options = {}) {
   zipContent.addEventListener("scroll", () => {
     closeZipNavDropdown();
     updateZipIndicatorsAndHUD();
+    schedulePreloadAroundActive();
   }, { passive: true });
 
   zipContent.scrollTop = 0;
@@ -1225,14 +1269,25 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
   activeZipAbortController = new AbortController();
   const signal = activeZipAbortController.signal;
 
-  setZipNavVisible(false, true);
-  if (zipViewer) zipViewer.classList.remove("hidden");
-  if (zipTitle) zipTitle.textContent = filename;
-  if (zipIndicator) zipIndicator.textContent = "";
-  if (zipContent) {
-    zipContent.innerHTML = '<div id="zip-progress-text"></div>';
-    const pt = document.getElementById("zip-progress-text");
-    renderArchiveProgress(pt, "Connecting...", null, filename);
+  const revealViewer = () => {
+    setZipNavVisible(false, true);
+    if (zipViewer) zipViewer.classList.remove("hidden");
+  };
+
+  // When the archive is already in memory, keep the viewer hidden until the
+  // first slides are decoded so the open is instant instead of flashing a
+  // black "Loading..." screen.
+  if (cachedBlob) {
+    if (zipTitle) zipTitle.textContent = filename;
+  } else {
+    revealViewer();
+    if (zipTitle) zipTitle.textContent = filename;
+    if (zipIndicator) zipIndicator.textContent = "";
+    if (zipContent) {
+      zipContent.innerHTML = '<div id="zip-progress-text"></div>';
+      const pt = document.getElementById("zip-progress-text");
+      renderArchiveProgress(pt, "Connecting...", null, filename);
+    }
   }
 
   try {
@@ -1273,10 +1328,15 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
     }
 
     const progressText = document.getElementById("zip-progress-text");
-    if (progressText) renderArchiveProgress(progressText, "Extracting files...", null, filename);
-
-    if (!window.JSZip) throw new Error("JSZip not loaded");
-    const zip = await window.JSZip.loadAsync(blob);
+    if (progressText) renderArchiveProgress(progressText, "Extracting files...", null, filename);    let zip = null;
+    let unzipEntries = null;
+    if (window.unzipit) {
+      const result = await window.unzipit.unzip(blob);
+      unzipEntries = result.entries;
+    } else {
+      if (!window.JSZip) throw new Error("No zip library loaded");
+      zip = await window.JSZip.loadAsync(blob);
+    }
 
     if (zipContent) zipContent.innerHTML = "";
     state.currentZipObjectUrls.forEach((url) => URL.revokeObjectURL(url));
@@ -1287,8 +1347,19 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
     const videoExts = ["mp4", "webm", "mov", "m4v", "ogv", "mkv"];
     const audioExts = ["mp3", "ogg", "wav", "m4a", "flac"];
 
-    zip.forEach((relativePath, zipEntry) => {
-      if (zipEntry.dir) return;
+    const entryList = [];
+    if (unzipEntries) {
+      Object.keys(unzipEntries).forEach((relativePath) => {
+        entryList.push([relativePath, unzipEntries[relativePath]]);
+      });
+    } else {
+      zip.forEach((relativePath, zipEntry) => {
+        entryList.push([relativePath, zipEntry]);
+      });
+    }
+
+    entryList.forEach(([relativePath, zipEntry]) => {
+      if (zipEntry.dir || relativePath.endsWith("/")) return;
       const normalizedPath = relativePath.replace(/\\/g, "/");
       if (normalizedPath.startsWith("__MACOSX/") || normalizedPath.split("/").some((p) => p.startsWith("."))) return;
       const ext = normalizedPath.split(".").pop().toLowerCase();
@@ -1310,7 +1381,7 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
         name: parts[parts.length - 1],
         relativePath: normalizedPath,
         ext,
-        size: zipEntry.uncompressedSize !== undefined ? zipEntry.uncompressedSize : (zipEntry._data?.uncompressedSize || 0)
+        size: zipEntry.uncompressedSize ?? zipEntry.size ?? (zipEntry._data?.uncompressedSize || 0)
       });
     });
 
@@ -1389,7 +1460,9 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
             });
 
             try {
-              const rawBlob = await f.entry.async("blob");
+              const rawBlob = typeof f.entry.async === "function"
+                ? await f.entry.async("blob")
+                : await f.entry.blob();
               if (sig && sig.aborted) return;
               const mime = getMimeType(f.name);
               const fileBlob = mime ? new Blob([rawBlob], { type: mime }) : rawBlob;
@@ -1579,14 +1652,50 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
     const cleanTitle = filename.replace(/\.zip$/i, "") || filename;
     render2DMatrixGallery(folderGroups, { galleryTitle: cleanTitle, signal });
 
+    if (cachedBlob) {
+      await preloadFirstSlides(signal);
+      if (signal.aborted) return;
+      revealViewer();
+      // Rows were laid out while the viewer was display:none, so their scroll
+      // positions were never applied — align them now that layout exists.
+      if (zipContent) {
+        zipContent.querySelectorAll(".zip-folder-row").forEach((row) => {
+          alignFolderRowToFirstSlide(row, parseInt(row.dataset.mediaCount || "0", 10));
+        });
+      }
+      updateZipIndicatorsAndHUD();
+      preloadAroundActive();
+    }
+
   } catch (err) {
     if (signal && signal.aborted) return;
     console.error(err);
+    revealViewer();
     if (zipTitle) zipTitle.textContent = "Error";
     if (zipIndicator) zipIndicator.textContent = "";
     if (zipContent) {
       zipContent.innerHTML = "";
       showMediaUnavailableWarning(zipContent, "zip");
     }
+  }
+}
+
+async function preloadFirstSlides(signal, timeoutMs = 2000) {
+  if (!zipContent) return;
+  const firstRow = zipContent.querySelector(".zip-folder-row");
+  if (!firstRow) return;
+  const slides = Array.from(firstRow.querySelectorAll(".media-item:not([data-is-clone='true'])"))
+    .slice(0, Math.max(2, (window.pawPreloadCount || 1) * 2 + 1));
+  for (const slide of slides) {
+    if (slide.dataset.loaded === "true" || slide.dataset.loading === "true") continue;
+    if (typeof slide._loadMedia === "function") slide._loadMedia(slide, signal);
+  }
+  const first = slides[0];
+  if (!first) return;
+  const t0 = performance.now();
+  while (performance.now() - t0 < timeoutMs) {
+    if (signal && signal.aborted) return;
+    if (first.dataset.loaded === "true") return;
+    await new Promise((r) => setTimeout(r, 16));
   }
 }
