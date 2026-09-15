@@ -1,10 +1,15 @@
 import { PROXY_URL, state } from "./state.js";
-import { getServiceColor, startProgress, stopProgress } from "./utils.js";
+import { getServiceColor, startProgress, stopProgress, escapeHtml } from "./utils.js";
 import { updateNavTabs, showView, navBack, feedView } from "./nav.js";
 import { resetFeed, fetchPosts } from "./feed.js";
 
 export const creatorsList = document.getElementById("creators-list");
 export const creatorsLoading = document.getElementById("creators-loading");
+
+export function updateCreatorsLoading(text) {
+  if (!creatorsLoading) return;
+  creatorsLoading.innerHTML = `<span class="loading-spinner"></span><span>${escapeHtml(text)}</span>`;
+}
 export const searchInput = document.getElementById("creator-search");
 export const searchClearBtn = document.getElementById("creator-search-clear");
 
@@ -146,13 +151,15 @@ let coomerFetchSeq = 0;
 
 async function fetchAndRenderCoomerCreators() {
   const seq = ++coomerFetchSeq;
+  const query = searchInput ? searchInput.value.trim() : "";
   if (creatorsLoading) {
-    creatorsLoading.textContent = "Loading creators...";
+    const site = state.currentSite ? (state.currentSite.charAt(0).toUpperCase() + state.currentSite.slice(1)) : "Creators";
+    const text = query ? `Searching ${site} creators for "${query}"...` : `Loading ${site} creators...`;
+    updateCreatorsLoading(text);
     creatorsLoading.classList.add("active");
   }
   startProgress();
 
-  const query = searchInput ? searchInput.value.trim() : "";
   const sortVal = sortSelect ? sortSelect.value : "popularity";
   const contentFilter = contentFilterSelect ? contentFilterSelect.value : "content";
   const genderFilter = genderFilterSelect ? genderFilterSelect.value : "all";
@@ -282,7 +289,11 @@ export async function loadCreators() {
   state.loadedCreatorsSite = state.currentSite;
   state.allCreators = [];
   if (creatorsList) creatorsList.innerHTML = "";
-  if (creatorsLoading) creatorsLoading.classList.add("active");
+  if (creatorsLoading) {
+    const site = state.currentSite ? (state.currentSite.charAt(0).toUpperCase() + state.currentSite.slice(1)) : "Creators";
+    updateCreatorsLoading(`Loading ${site} creators...`);
+    creatorsLoading.classList.add("active");
+  }
   startProgress();
 
   try {
@@ -343,7 +354,7 @@ export async function loadCreators() {
     filterAndSortCreators();
   } catch (error) {
     console.error("Error fetching creators:", error);
-    if (creatorsLoading) creatorsLoading.textContent = "Failed to load creators.";
+    if (creatorsLoading) creatorsLoading.innerHTML = `<span>Failed to load creators.</span>`;
   } finally {
     if (creatorsLoading) creatorsLoading.classList.remove("active");
     stopProgress();

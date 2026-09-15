@@ -93,10 +93,29 @@ export function getMimeType(filename) {
       return "image/avif";
     case "bmp":
       return "image/bmp";
+    case "svg":
+      return "image/svg+xml";
     case "mp4":
+    case "m4v":
       return "video/mp4";
     case "webm":
       return "video/webm";
+    case "mov":
+      return "video/quicktime";
+    case "ogv":
+      return "video/ogg";
+    case "mkv":
+      return "video/x-matroska";
+    case "mp3":
+      return "audio/mpeg";
+    case "ogg":
+      return "audio/ogg";
+    case "wav":
+      return "audio/wav";
+    case "m4a":
+      return "audio/mp4";
+    case "flac":
+      return "audio/flac";
     default:
       return "application/octet-stream";
   }
@@ -107,7 +126,11 @@ export function getMimeType(filename) {
  */
 export function isImageOrVideo(filename) {
   const ext = (filename || "").split(".").pop().toLowerCase();
-  return ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "mp4", "webm"].includes(ext);
+  return [
+    "jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "svg",
+    "mp4", "webm", "mov", "m4v", "ogv", "mkv",
+    "mp3", "ogg", "wav", "m4a", "flac"
+  ].includes(ext);
 }
 
 function cleanUrl(url) {

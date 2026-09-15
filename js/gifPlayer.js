@@ -1225,13 +1225,5 @@ export async function loadGifPlayer({
 
     item.appendChild(fallbackImg);
     return;
-
-    if (progressOverlay) progressOverlay.style.display = "flex";
-    showMediaUnavailableWarning(progressOverlay, {
-      type: "gif",
-      filename,
-      errorStatus: err.message || "404",
-      onRetry,
-    });
   }
 }

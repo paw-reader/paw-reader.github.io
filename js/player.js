@@ -534,6 +534,28 @@ export function attachCustomVideoPlayer(video, container) {
       return;
     }
 
+    const x = e.clientX;
+    const y = e.clientY;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    const edgeCfg = window.pawEdgeConfig || { top: 0.05, bottom: 0.05, left: 0.05, right: 0.05 };
+    const isVerticalEdge = y < h * (edgeCfg.top ?? 0.05) || y > h * (1 - (edgeCfg.bottom ?? 0.05));
+
+    const carousel = container.closest(".media-carousel") || container.closest(".zip-folder-row");
+    const hasMultiple = carousel && (
+      parseInt(carousel.dataset.mediaCount || "1", 10) > 1 ||
+      carousel.querySelectorAll(".media-item:not([data-is-clone='true'])").length > 1
+    );
+    const isZipGallery = !!container.closest("#zip-viewer");
+    const isHorizontalEdge = (hasMultiple || isZipGallery) && (x < w * (edgeCfg.left ?? 0.05) || x > w * (1 - (edgeCfg.right ?? 0.05)));
+
+    if (isVerticalEdge || isHorizontalEdge) {
+      // In edge navigation zone: do not stop propagation, do not toggle controls, do not play/pause or seek!
+      // Allow event to bubble to zipViewer in app.js or card in feed.js!
+      return;
+    }
+
     e.stopPropagation();
 
     const rect = overlay.getBoundingClientRect();
@@ -600,11 +622,62 @@ export function attachCustomVideoPlayer(video, container) {
     }, 260);
   });
 
-  // Tapping the letterbox space outside the video wrapper also toggles controls/nav
+  // Tapping the letterbox space outside the video wrapper toggles controls/nav or navigates edges
   const onContainerClick = (e) => {
     if (e.target.closest(".video-player-wrapper")) return;
-    if (container.closest(".post-card")?.dataset.isDragging === "true") return;
+    const card = container.closest(".post-card");
+    if (card?.dataset.isDragging === "true") return;
+
+    const navEl = document.getElementById("nav");
+    const isNavVisible = navEl && navEl.classList.contains("visible");
+    const isControlsVisible = overlay.classList.contains("controls-visible");
+
+    // If controls or nav buttons are currently visible, tapping empty space hides them (matching image behavior)
+    if (isNavVisible || isControlsVisible) {
+      hideControls();
+      state.navManualVisible = false;
+      window.lastMouseY = -1;
+      updateNavVisibility();
+      const zipNav = document.getElementById("zip-nav");
+      if (zipNav) {
+        state.zipNavManualVisible = false;
+        zipNav.classList.remove("visible");
+      }
+      e.stopPropagation();
+      return;
+    }
+
+    const x = e.clientX;
+    const y = e.clientY;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    const edgeCfg = window.pawEdgeConfig || { top: 0.05, bottom: 0.05, left: 0.05, right: 0.05 };
+    const isVerticalEdge = y < h * (edgeCfg.top ?? 0.05) || y > h * (1 - (edgeCfg.bottom ?? 0.05));
+
+    const carousel = container.closest(".media-carousel") || container.closest(".zip-folder-row");
+    const hasMultiple = carousel && (
+      parseInt(carousel.dataset.mediaCount || "1", 10) > 1 ||
+      carousel.querySelectorAll(".media-item:not([data-is-clone='true'])").length > 1
+    );
+    const isZipGallery = !!container.closest("#zip-viewer");
+    const isHorizontalEdge = (hasMultiple || isZipGallery) && (x < w * (edgeCfg.left ?? 0.05) || x > w * (1 - (edgeCfg.right ?? 0.05)));
+
+    if (isVerticalEdge || isHorizontalEdge) {
+      // In edge zone: do not toggle controls or stop propagation.
+      // Let the event bubble to card.addEventListener("click") in feed.js which executes post/carousel scroll!
+      return;
+    }
+
+    if (!card) {
+      toggleControls();
+      e.stopPropagation();
+      return;
+    }
+
+    // Tap in non-edge center empty space: toggle controls & nav
     toggleControls();
+    e.stopPropagation();
   };
   container.addEventListener("click", onContainerClick);
 

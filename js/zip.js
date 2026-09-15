@@ -1,8 +1,9 @@
 import { state } from "./state.js";
 import { formatBytes, showMediaUnavailableWarning, renderArchiveProgress, renderMediaProgress, escapeHtml } from "./utils.js";
 import { showView, welcomeScreen, navBack, updateNavTabs, wrapCarousel, settingsMenu } from "./nav.js";
-import { handleCarouselScrollSettled, smoothScroll, navigateCarousel, getCarouselMetrics, getCurrentGalleryPost } from "./feed.js";
-import { abortExternalGallery } from "./externalGalleries.js";
+import { handleCarouselScrollSettled, smoothScroll, navigateCarousel, getCarouselMetrics, getCurrentGalleryPost, playbackObserver } from "./feed.js";
+import { abortExternalGallery, getMimeType } from "./externalGalleries.js";
+import { attachCustomVideoPlayer } from "./player.js";
 
 export const zipViewer = document.getElementById("zip-viewer");
 export const zipTitle = document.getElementById("zip-title");
@@ -40,6 +41,14 @@ export function closeZipGallery() {
 
   if (zipViewer) zipViewer.classList.add("hidden");
   if (zipContent) {
+    zipContent.querySelectorAll("video, audio").forEach((media) => {
+      try {
+        media.pause();
+        if (playbackObserver) playbackObserver.unobserve(media);
+        media.removeAttribute("src");
+        media.load();
+      } catch (_) {}
+    });
     zipContent.innerHTML = "";
     delete zipContent.dataset.mediaCount;
     zipContent.classList.remove("folder-browser-mode");
@@ -293,6 +302,17 @@ export function updateActiveSlideInfo(mediaItem) {
   if (img && (!img.naturalWidth || !img.naturalHeight) && !img._hasInfoDimHandler) {
     img._hasInfoDimHandler = true;
     img.addEventListener("load", () => {
+      const currentActive = getActiveMediaItem()?.item;
+      if (currentActive === active) {
+        checkDimensions();
+      }
+    }, { once: true });
+  }
+
+  const video = active.querySelector("video");
+  if (video && (!video.videoWidth || !video.videoHeight) && !video._hasInfoDimHandler) {
+    video._hasInfoDimHandler = true;
+    video.addEventListener("loadedmetadata", () => {
       const currentActive = getActiveMediaItem()?.item;
       if (currentActive === active) {
         checkDimensions();
@@ -789,7 +809,11 @@ export function updateZipIndicatorsAndHUD() {
   // Update Indicator
   if (zipIndicator) {
     zipIndicator.style.display = "";
-    zipIndicator.textContent = `${active.fileIdx + 1} / ${active.totalFiles}`;
+    if (active.totalFolders > 1) {
+      zipIndicator.textContent = `${active.fileIdx + 1} / ${active.totalFiles} • Folder ${active.folderIdx + 1} / ${active.totalFolders}`;
+    } else {
+      zipIndicator.textContent = `${active.fileIdx + 1} / ${active.totalFiles}`;
+    }
   }
 
   // Update Title
@@ -1230,6 +1254,8 @@ export function render2DMatrixGallery(folderGroups, options = {}) {
   zipContent.dataset.galleryTitle = rootTitle;
 
   const validGroups = (folderGroups || []).filter((g) => g.files && g.files.length > 0);
+  const totalMedia = validGroups.reduce((sum, g) => sum + (g.files?.length || 0), 0);
+  zipContent.dataset.mediaCount = String(totalMedia);
   if (validGroups.length === 0) {
     if (zipTitle) zipTitle.textContent = options.galleryTitle || "Gallery";
     if (zipIndicator) {
@@ -1339,16 +1365,21 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
     state.currentZipObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     state.currentZipObjectUrls = [];
 
-    // Group image files by directory/folder path
+    // Group image, video, and audio files by directory/folder path
     const folderMap = new Map();
+
+    const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "svg"];
+    const videoExts = ["mp4", "webm", "mov", "m4v", "ogv", "mkv"];
+    const audioExts = ["mp3", "ogg", "wav", "m4a", "flac"];
 
     zip.forEach((relativePath, zipEntry) => {
       if (zipEntry.dir) return;
-      if (relativePath.startsWith("__MACOSX/") || relativePath.split("/").some((p) => p.startsWith("."))) return;
-      const ext = relativePath.split(".").pop().toLowerCase();
-      if (!["jpg", "jpeg", "png", "gif", "webp", "avif"].includes(ext)) return;
+      const normalizedPath = relativePath.replace(/\\/g, "/");
+      if (normalizedPath.startsWith("__MACOSX/") || normalizedPath.split("/").some((p) => p.startsWith("."))) return;
+      const ext = normalizedPath.split(".").pop().toLowerCase();
+      if (!imageExts.includes(ext) && !videoExts.includes(ext) && !audioExts.includes(ext)) return;
 
-      const parts = relativePath.split("/").filter(Boolean);
+      const parts = normalizedPath.split("/").filter(Boolean);
       let folderName = "";
       if (parts.length > 1) {
         folderName = parts.slice(0, -1).join("/");
@@ -1362,10 +1393,21 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
       folderMap.get(folderName).push({
         entry: zipEntry,
         name: parts[parts.length - 1],
-        relativePath,
+        relativePath: normalizedPath,
+        ext,
         size: zipEntry.uncompressedSize !== undefined ? zipEntry.uncompressedSize : (zipEntry._data?.uncompressedSize || 0)
       });
     });
+
+    // If there are multiple folders but each folder has only 1 file (or each video is inside an isolated folder),
+    // flatten them into a single album so the user gets a full horizontal carousel with proper count (e.g. 1 / 5).
+    if (folderMap.size > 1 && Array.from(folderMap.values()).every((files) => files.length === 1)) {
+      const flattenedFiles = [];
+      folderMap.forEach((files) => flattenedFiles.push(...files));
+      folderMap.clear();
+      const defaultFolderName = filename.replace(/\.zip$/i, "") || "Root";
+      folderMap.set(defaultFolderName, flattenedFiles);
+    }
 
     const folderNames = Array.from(folderMap.keys()).sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
@@ -1396,10 +1438,25 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
             if (alreadyLoaded) {
               container.dataset.loaded = "true";
               delete container.dataset.loading;
-              const media = alreadyLoaded.querySelector("img, video");
+              const media = alreadyLoaded.querySelector("img, video, audio");
               if (media) {
-                container.querySelectorAll("img, video").forEach((el) => el.remove());
-                container.appendChild(media.cloneNode(true));
+                container.querySelectorAll("img, video, audio, .video-player-wrapper").forEach((el) => el.remove());
+                if (media.tagName.toLowerCase() === "video") {
+                  if (container.dataset.isClone !== "true") {
+                    const cloneVid = media.cloneNode(true);
+                    container.appendChild(cloneVid);
+                    attachCustomVideoPlayer(cloneVid, container);
+                    if (playbackObserver) playbackObserver.observe(cloneVid);
+                  }
+                } else if (media.tagName.toLowerCase() === "audio") {
+                  if (container.dataset.isClone !== "true") {
+                    const cloneAud = media.cloneNode(true);
+                    container.appendChild(cloneAud);
+                    if (playbackObserver) playbackObserver.observe(cloneAud);
+                  }
+                } else {
+                  container.appendChild(media.cloneNode(true));
+                }
               }
               const p = container.querySelector(".media-progress");
               if (p) p.style.display = "none";
@@ -1413,55 +1470,174 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
             });
 
             try {
-              const fileBlob = await f.entry.async("blob");
+              const rawBlob = await f.entry.async("blob");
               if (sig && sig.aborted) return;
+              const mime = getMimeType(f.name);
+              const fileBlob = mime ? new Blob([rawBlob], { type: mime }) : rawBlob;
               const objUrl = URL.createObjectURL(fileBlob);
               state.currentZipObjectUrls.push(objUrl);
 
-              const img = new Image();
-              img.style.maxWidth = "100%";
-              img.style.maxHeight = "100%";
-              img.style.objectFit = "contain";
-              img.decoding = "async";
+              const isVideo = videoExts.includes(f.ext);
+              const isAudio = audioExts.includes(f.ext);
 
-              img.onload = () => {
+              if (isVideo) {
                 allMatchingContainers.forEach((target) => {
-                  target.dataset.loaded = "true";
-                  delete target.dataset.loading;
-                  target.querySelectorAll("img, video").forEach((el) => el.remove());
-                  target.appendChild(img.cloneNode(true));
-                  const p = target.querySelector(".media-progress");
-                  if (p) p.style.display = "none";
-                });
-              };
-              img.onerror = () => {
-                allMatchingContainers.forEach((target) => {
-                  delete target.dataset.loading;
-                  delete target.dataset.loaded;
-                  target.querySelectorAll("img, video").forEach((el) => el.remove());
-                  const p = target.querySelector(".media-progress");
-                  if (p) {
-                    p.style.display = "flex";
-                    showMediaUnavailableWarning(p, {
-                      type: "image",
-                      filename: f.name,
-                      errorStatus: "Corrupt",
-                      message: "Failed to decode image from zip archive"
+                  target.querySelectorAll("img, video, audio, .video-player-wrapper").forEach((el) => el.remove());
+                  if (target.dataset.isClone === "true") return;
+
+                  const video = document.createElement("video");
+                  video.className = "post-media";
+                  video.playsInline = true;
+                  video.setAttribute("playsinline", "");
+                  video.setAttribute("webkit-playsinline", "");
+                  video.loop = true;
+                  video.muted = true;
+                  video.defaultMuted = true;
+                  video.disableRemotePlayback = true;
+                  video.style.maxWidth = "100%";
+                  video.style.maxHeight = "100%";
+                  video.style.objectFit = "contain";
+                  video.preload = "metadata";
+
+                  target.appendChild(video);
+                  attachCustomVideoPlayer(video, target);
+                  if (playbackObserver) playbackObserver.observe(video);
+
+                  const onReady = () => {
+                    allMatchingContainers.forEach((t) => {
+                      t.dataset.loaded = "true";
+                      delete t.dataset.loading;
+                      const p = t.querySelector(".media-progress");
+                      if (p) p.style.display = "none";
                     });
+                    const active = getActiveMediaItem();
+                    if (active && (active.item === target || active.item?.dataset?.fileIdx === target.dataset.fileIdx)) {
+                      updateActiveSlideInfo(target);
+                    }
+                  };
+
+                  video.addEventListener("canplay", onReady, { once: true });
+                  video.addEventListener("loadedmetadata", onReady, { once: true });
+                  if (video.readyState >= 1) {
+                    onReady();
                   }
+
+                  video.onerror = () => {
+                    allMatchingContainers.forEach((t) => {
+                      delete t.dataset.loading;
+                      delete t.dataset.loaded;
+                      t.querySelectorAll("img, video, audio, .video-player-wrapper").forEach((el) => el.remove());
+                      const p = t.querySelector(".media-progress");
+                      if (p) {
+                        p.style.display = "flex";
+                        showMediaUnavailableWarning(p, {
+                          type: "video",
+                          filename: f.name,
+                          errorStatus: "Corrupt",
+                          message: "Failed to decode video from zip archive"
+                        });
+                      }
+                    });
+                  };
+
+                  video.src = objUrl;
                 });
-              };
-              img.src = objUrl;
+              } else if (isAudio) {
+                allMatchingContainers.forEach((target) => {
+                  target.querySelectorAll("img, video, audio, .video-player-wrapper").forEach((el) => el.remove());
+                  if (target.dataset.isClone === "true") return;
+
+                  const audio = document.createElement("audio");
+                  audio.className = "post-media";
+                  audio.controls = true;
+                  target.appendChild(audio);
+                  if (playbackObserver) playbackObserver.observe(audio);
+
+                  const onReady = () => {
+                    allMatchingContainers.forEach((t) => {
+                      t.dataset.loaded = "true";
+                      delete t.dataset.loading;
+                      const p = t.querySelector(".media-progress");
+                      if (p) p.style.display = "none";
+                    });
+                  };
+
+                  audio.addEventListener("canplay", onReady, { once: true });
+                  audio.addEventListener("loadedmetadata", onReady, { once: true });
+                  if (audio.readyState >= 1) {
+                    onReady();
+                  }
+
+                  audio.onerror = () => {
+                    allMatchingContainers.forEach((t) => {
+                      delete t.dataset.loading;
+                      delete t.dataset.loaded;
+                      t.querySelectorAll("img, video, audio, .video-player-wrapper").forEach((el) => el.remove());
+                      const p = t.querySelector(".media-progress");
+                      if (p) {
+                        p.style.display = "flex";
+                        showMediaUnavailableWarning(p, {
+                          type: "audio",
+                          filename: f.name,
+                          errorStatus: "Corrupt",
+                          message: "Failed to decode audio from zip archive"
+                        });
+                      }
+                    });
+                  };
+
+                  audio.src = objUrl;
+                });
+              } else {
+                const img = new Image();
+                img.style.maxWidth = "100%";
+                img.style.maxHeight = "100%";
+                img.style.objectFit = "contain";
+                img.decoding = "async";
+
+                img.onload = () => {
+                  allMatchingContainers.forEach((target) => {
+                    target.dataset.loaded = "true";
+                    delete target.dataset.loading;
+                    target.querySelectorAll("img, video, audio, .video-player-wrapper").forEach((el) => el.remove());
+                    target.appendChild(img.cloneNode(true));
+                    const p = target.querySelector(".media-progress");
+                    if (p) p.style.display = "none";
+                  });
+                  const active = getActiveMediaItem();
+                  if (active && (active.item === container || active.item?.dataset?.fileIdx === container.dataset.fileIdx)) {
+                    updateActiveSlideInfo(container);
+                  }
+                };
+                img.onerror = () => {
+                  allMatchingContainers.forEach((target) => {
+                    delete target.dataset.loading;
+                    delete target.dataset.loaded;
+                    target.querySelectorAll("img, video, audio, .video-player-wrapper").forEach((el) => el.remove());
+                    const p = target.querySelector(".media-progress");
+                    if (p) {
+                      p.style.display = "flex";
+                      showMediaUnavailableWarning(p, {
+                        type: "image",
+                        filename: f.name,
+                        errorStatus: "Corrupt",
+                        message: "Failed to decode image from zip archive"
+                      });
+                    }
+                  });
+                };
+                img.src = objUrl;
+              }
             } catch (_) {
               allMatchingContainers.forEach((target) => {
                 delete target.dataset.loading;
                 delete target.dataset.loaded;
-                target.querySelectorAll("img, video").forEach((el) => el.remove());
+                target.querySelectorAll("img, video, audio, .video-player-wrapper").forEach((el) => el.remove());
                 const p = target.querySelector(".media-progress");
                 if (p) {
                   p.style.display = "flex";
                   showMediaUnavailableWarning(p, {
-                    type: "image",
+                    type: videoExts.includes(f.ext) ? "video" : audioExts.includes(f.ext) ? "audio" : "image",
                     filename: f.name,
                     errorStatus: "Error",
                     message: "Failed to extract file from archive"

@@ -102,6 +102,10 @@
         <span>GIF player controls</span>
         <input type="checkbox" id="setting-custom-gif-player" style="width: 18px; height: 18px; cursor: pointer;">
       </label>
+      <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-top: 15px;">
+        <span>Visualize edges</span>
+        <input type="checkbox" id="setting-visualize-edges" style="width: 18px; height: 18px; cursor: pointer;">
+      </label>
     </div>
   </div>
 
@@ -173,7 +177,7 @@
       <button id="creator-sort-dir" title="Toggle sort direction" style="display: flex; align-items: center; justify-content: center;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></button>
     </div>
     <div id="creator-pagination-top" class="pagination pagination-top"></div>
-    <div id="creators-loading" class="loading active">Loading creators...</div>
+    <div id="creators-loading" class="loading active"><span class="loading-spinner"></span><span>Loading creators...</span></div>
     <div id="creators-list" class="creators-grid"></div>
     <div id="creator-pagination" class="pagination"></div>
   </div>
@@ -181,7 +185,7 @@
   <div id="feed-view" class="view">
     <div id="feed" class="feed vertical">
     </div>
-    <div id="feed-loading" class="loading">Loading...</div>
+    <div id="feed-loading" class="loading"><span class="loading-spinner"></span><span>Loading...</span></div>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>

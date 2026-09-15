@@ -1254,6 +1254,25 @@ export function navigateCarousel(carousel, direction, totalCount, isKey = false)
   });
 }
 
+export function cleanEmptyParagraphs(container) {
+  if (!container) return;
+  const paragraphs = container.querySelectorAll("p");
+  paragraphs.forEach((p) => {
+    if (p.querySelector("img, video, audio, iframe, embed, object, svg, canvas, input, button, select, textarea")) {
+      return;
+    }
+    const links = p.querySelectorAll("a");
+    for (const a of links) {
+      if (a.querySelector("img, video, audio, svg, canvas")) return;
+      if (a.textContent.replace(/[\s\u200B-\u200D\uFEFF]+/g, "")) return;
+    }
+    const text = p.textContent.replace(/[\s\u200B-\u200D\uFEFF]+/g, "");
+    if (!text) {
+      p.remove();
+    }
+  });
+}
+
 export function renderPostInfoSection(post, authorEl, titleEl, contentEl) {
   if (!post) {
     if (authorEl) {
@@ -1369,8 +1388,28 @@ export function renderPostInfoSection(post, authorEl, titleEl, contentEl) {
     if (cleanContent) {
       cleanContent = cleanContent.replace(/(href|src)=["']file:[^"']*["']/gi, '$1="#"');
       cleanContent = cleanContent.replace(/<a /gi, '<a target="_blank" rel="noopener noreferrer" ');
+      cleanContent = cleanContent.replace(/(<br\s*\/?>[\s\u200B-\u200D\uFEFF]*){3,}/gi, '<br><br>');
+      cleanContent = cleanContent.replace(/^(\s*<br\s*\/?>)+/gi, '').replace(/(<br\s*\/?>\s*)+$/gi, '');
       contentEl.innerHTML = cleanContent;
-      contentEl.style.display = "block";
+      cleanEmptyParagraphs(contentEl);
+
+      const hasText = !!contentEl.textContent.replace(/[\s\u200B-\u200D\uFEFF]+/g, "");
+      const hasMedia = !!contentEl.querySelector("img, video, audio, iframe, embed, object, svg, canvas");
+      let hasLink = false;
+      const links = contentEl.querySelectorAll("a");
+      for (const a of links) {
+        if (a.textContent.replace(/[\s\u200B-\u200D\uFEFF]+/g, "") || a.querySelector("img, video, audio, svg, canvas")) {
+          hasLink = true;
+          break;
+        }
+      }
+
+      if (hasText || hasMedia || hasLink) {
+        contentEl.style.display = "block";
+      } else {
+        contentEl.innerHTML = "";
+        contentEl.style.display = "none";
+      }
     } else {
       contentEl.style.display = "none";
     }
@@ -1438,10 +1477,6 @@ export function createPostCard(post) {
   let cleanContent = post.content || post.substring || "";
   if (cleanContent) {
     cleanContent = cleanContent.replace(/(href|src)=["']file:[^"']*["']/gi, '$1="#"');
-  }
-  post._cleanContent = cleanContent;
-  if (cleanContent) {
-
     const tmp = document.createElement("div");
     tmp.innerHTML = cleanContent;
     const inlineImgs = tmp.querySelectorAll("img");
@@ -1461,8 +1496,10 @@ export function createPostCard(post) {
       }
       img.remove();
     });
+    cleanEmptyParagraphs(tmp);
     cleanContent = tmp.innerHTML;
   }
+  post._cleanContent = cleanContent;
 
   const extGalleries = detectExternalGalleries(cleanContent || post.substring || "");
   if (extGalleries.mega.length > 0 || extGalleries.dropbox.length > 0) {
@@ -1760,18 +1797,25 @@ export function createPostCard(post) {
     if (e.target.tagName.toLowerCase() === "a" || e.target.closest("a")) return;
     if (e.target.tagName.toLowerCase() === "button" || e.target.closest("button")) return;
     if (e.target.closest(".zip-info-text")) return;
-    if (e.target.closest(".custom-player-overlay")) return;
+    const edgeCfg = window.pawEdgeConfig || { top: 0.05, bottom: 0.05, left: 0.05, right: 0.05 };
+    const x = e.clientX;
+    const y = e.clientY;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const isEdgeClick =
+      y < h * (edgeCfg.top ?? 0.05) ||
+      y > h * (1 - (edgeCfg.bottom ?? 0.05)) ||
+      x < w * (edgeCfg.left ?? 0.05) ||
+      x > w * (1 - (edgeCfg.right ?? 0.05));
 
-    if (card.dataset.isDragging === "true") {
-      card.dataset.isDragging = "false";
-      return;
-    }
-
-    const isVideo = e.target.tagName.toLowerCase() === "video";
-    const isAudio = e.target.tagName.toLowerCase() === "audio";
-    if (isAudio) return;
-    if (isVideo && e.target.closest(".media-item")?.querySelector(".custom-player-overlay")) {
-      return;
+    if (!isEdgeClick) {
+      if (e.target.closest(".custom-player-overlay")) return;
+      const isVideo = e.target.tagName.toLowerCase() === "video";
+      const isAudio = e.target.tagName.toLowerCase() === "audio";
+      if (isAudio) return;
+      if (isVideo && e.target.closest(".media-item")?.querySelector(".custom-player-overlay")) {
+        return;
+      }
     }
 
     const navEl = document.getElementById("nav");
@@ -1790,13 +1834,26 @@ export function createPostCard(post) {
       return;
     }
 
-    const x = e.clientX;
-    const y = e.clientY;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const leftThreshold = w * (edgeCfg.left ?? 0.05);
+    const rightThreshold = w * (1 - (edgeCfg.right ?? 0.05));
+    const topThreshold = h * (edgeCfg.top ?? 0.05);
+    const bottomThreshold = h * (1 - (edgeCfg.bottom ?? 0.05));
 
     // Edge tap navigation (only when nav buttons are hidden):
-    if (y < h * 0.15) {
+    // When there are 2 or more files, left and right edges have priority on the corners
+    const carousel = card.querySelector(".media-carousel");
+    if (carousel && allMedia.length > 1) {
+      if (x < leftThreshold) {
+        navigateCarousel(carousel, "left", allMedia.length);
+        return;
+      }
+      if (x > rightThreshold) {
+        navigateCarousel(carousel, "right", allMedia.length);
+        return;
+      }
+    }
+
+    if (y < topThreshold) {
       let target =
         feed.dataset.targetScroll !== undefined
           ? parseFloat(feed.dataset.targetScroll)
@@ -1808,7 +1865,7 @@ export function createPostCard(post) {
       feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? "auto" : "smooth" });
       return;
     }
-    if (y > h * 0.85) {
+    if (y > bottomThreshold) {
       let target =
         feed.dataset.targetScroll !== undefined
           ? parseFloat(feed.dataset.targetScroll)
@@ -1820,17 +1877,6 @@ export function createPostCard(post) {
       feed.scrollTo({ top: target, behavior: window.pawAnimationsDisabled ? "auto" : "smooth" });
       return;
     }
-    const carousel = card.querySelector(".media-carousel");
-    if (carousel && allMedia.length > 1) {
-      if (x < w * 0.2) {
-        navigateCarousel(carousel, "left", allMedia.length);
-        return;
-      }
-      if (x > w * 0.8) {
-        navigateCarousel(carousel, "right", allMedia.length);
-        return;
-      }
-    }
 
     state.navManualVisible = true;
     window.lastMouseY = -1;
@@ -1840,9 +1886,98 @@ export function createPostCard(post) {
   return card;
 }
 
+export function getFeedLoadingDescription() {
+  const endpoint = state.currentFeedEndpoint || "";
+  const isAnnouncements = endpoint.includes("/announcements");
+  const isFancards = endpoint.includes("/fancards") || endpoint.includes("type=fancards");
+  const isDms = endpoint.includes("/dms");
+
+  let tag = null;
+  const tagMatch = endpoint.match(/[?&]tag=([^&]+)/);
+  if (tagMatch) {
+    try {
+      tag = decodeURIComponent(tagMatch[1]);
+    } catch (e) {
+      tag = tagMatch[1];
+    }
+  }
+
+  let typeLabel = null;
+  const typeMatch = endpoint.match(/[?&]type=([^&]+)/);
+  if (typeMatch && !isFancards) {
+    const rawType = decodeURIComponent(typeMatch[1]).toLowerCase();
+    const typeNames = {
+      photos: "Photos",
+      videos: "Videos",
+      audio: "Audio",
+      text: "Text posts",
+    };
+    typeLabel = typeNames[rawType] || rawType;
+  }
+
+  let category = "posts";
+  if (isAnnouncements) category = "announcements";
+  else if (isFancards) category = "fancards";
+  else if (isDms) category = "direct messages";
+  else if (tag) category = `posts tagged #${tag}`;
+  else if (typeLabel) category = typeLabel.toLowerCase();
+
+  let target = "";
+  const match = endpoint.match(/\/api\/v1\/([^\/]+)\/user\/([^\/]+)/);
+  if (match) {
+    const service = match[1];
+    const userId = match[2];
+    const serviceNames = {
+      patreon: "Patreon",
+      fanbox: "Fanbox",
+      fantia: "Fantia",
+      subscribestar: "SubscribeStar",
+      boosty: "Boosty",
+      gumroad: "Gumroad",
+      discord: "Discord",
+      dlsite: "DLsite",
+      onlyfans: "OnlyFans",
+      candfans: "CandFans",
+      fansly: "Fansly",
+    };
+    const formattedService = serviceNames[service.toLowerCase()] || (service.charAt(0).toUpperCase() + service.slice(1));
+
+    let creatorName = state.currentFeedCreatorName;
+    if (!creatorName && state.allCreators && state.allCreators.length > 0) {
+      const found = state.allCreators.find((c) => c.id === userId && (c.service === service || !c.service));
+      if (found && found.name) creatorName = found.name;
+    }
+    if (!creatorName) creatorName = userId;
+
+    target = ` by ${creatorName} (${formattedService})`;
+  } else {
+    const site = state.currentSite ? (state.currentSite.charAt(0).toUpperCase() + state.currentSite.slice(1)) : "Feed";
+    target = ` from ${site}`;
+  }
+
+  const isSinglePage = isAnnouncements || isFancards;
+  let batch = "";
+  if (!isSinglePage && state.offset > 0) {
+    const limit = state.limit || 50;
+    const pageNum = Math.floor(state.offset / limit) + 1;
+    const startRange = state.offset + 1;
+    const endRange = state.offset + limit;
+    batch = ` • Page ${pageNum} (${startRange}–${endRange})`;
+  }
+
+  return `Loading ${category}${target}${batch}...`;
+}
+
+export function updateFeedLoading(customText = null) {
+  if (!feedLoading) return;
+  const text = customText || getFeedLoadingDescription();
+  feedLoading.innerHTML = `<span class="loading-spinner"></span><span>${escapeHtml(text)}</span>`;
+}
+
 export async function fetchPosts() {
   if (state.isFetching || !state.hasMore) return;
   state.isFetching = true;
+  updateFeedLoading();
   if (feedLoading) feedLoading.classList.add("active");
   startProgress();
 
@@ -1862,14 +1997,18 @@ export async function fetchPosts() {
         res = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (res.status === 429 && attempt === 0) {
+          updateFeedLoading("Rate limited (429), retrying in 1.5s...");
           await new Promise((r) => setTimeout(r, 1500));
+          updateFeedLoading();
           continue;
         }
         break;
       } catch (e) {
         clearTimeout(timeoutId);
         if (attempt === 0) {
+          updateFeedLoading("Connection failed, retrying...");
           await new Promise((r) => setTimeout(r, 1000));
+          updateFeedLoading();
           continue;
         }
         throw e;
@@ -1886,6 +2025,9 @@ export async function fetchPosts() {
     if (!Array.isArray(posts) || posts.length === 0) {
       state.hasMore = false;
     } else {
+      const catName = isAnnouncements ? "announcements" : isFancards ? "fancards" : "posts";
+      updateFeedLoading(`Rendering ${posts.length} ${catName}...`);
+
       const currentCards = feed.querySelectorAll(".post-card");
       if (currentCards.length > 0) {
         feedObserver.unobserve(currentCards[currentCards.length - 1]);
@@ -1957,6 +2099,7 @@ export async function fetchPosts() {
             if (firstNode) {
               post.title = firstNode.innerHTML || (firstNode.textContent || "").trim();
               firstNode.remove();
+              cleanEmptyParagraphs(tmp);
               post.content = tmp.innerHTML.trim();
             }
           }
@@ -2007,6 +2150,7 @@ export async function fetchPosts() {
         feedObserver.observe(newCards[newCards.length - 1]);
       }
       if (addedCount === 0 && state.hasMore) {
+        updateFeedLoading("Filtering posts, loading next batch...");
         setTimeout(() => fetchPosts(), 50);
       }
     }

@@ -304,7 +304,7 @@ export function initGestures() {
         if (!atTop && !atBottom) return;
       }
 
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
 
       let multiplier = 1;
       if (e.deltaMode === 1) multiplier = 50; 
@@ -367,7 +367,7 @@ export function initGestures() {
         wheelAccumX = 0;
       }
     },
-    { passive: !window.pawAnimationsDisabled }
+    { passive: false }
   );
 
   let globalTouchStartX = 0;
@@ -480,7 +480,7 @@ export function initGestures() {
 
       if (e.cancelable) e.preventDefault();
     },
-    { passive: !window.pawAnimationsDisabled }
+    { passive: false }
   );
 
   document.addEventListener("touchcancel", cleanupGestureLock, { passive: true });

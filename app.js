@@ -55,6 +55,7 @@ import {
   getActiveMediaItem
 } from './js/zip.js';
 import { initGestures } from './js/gestures.js';
+import { initEdgeVisualizer, toggleEdgeVisualizer } from './js/edgeVisualizer.js';
 
 window.pawAnimationsDisabled = localStorage.getItem('paw_animations_disabled') === 'true';
 window.pawAutoDownloadZip = localStorage.getItem('paw_auto_download_zip') === 'true';
@@ -165,6 +166,14 @@ if (settingCustomGifPlayer) {
   settingCustomGifPlayer.addEventListener('change', (e) => {
     window.pawCustomGifPlayer = e.target.checked;
     localStorage.setItem('paw_custom_gif_player', window.pawCustomGifPlayer);
+  });
+}
+
+const settingVisualizeEdges = document.getElementById('setting-visualize-edges');
+if (settingVisualizeEdges) {
+  settingVisualizeEdges.checked = localStorage.getItem('paw_show_edges') === 'true';
+  settingVisualizeEdges.addEventListener('change', (e) => {
+    toggleEdgeVisualizer(e.target.checked);
   });
 }
 
@@ -543,17 +552,61 @@ if (zipViewer) {
       return;
     }
 
-    // In 2D Matrix mode: tap left/right side of screen scrolls active folder row left/right with wrap-around
+    const edgeCfg = window.pawEdgeConfig || { top: 0.05, bottom: 0.05, left: 0.05, right: 0.05 };
+    const x = e.clientX;
+    const y = e.clientY;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const leftThreshold = w * (edgeCfg.left ?? 0.05);
+    const rightThreshold = w * (1 - (edgeCfg.right ?? 0.05));
+    const topThreshold = h * (edgeCfg.top ?? 0.05);
+    const bottomThreshold = h * (1 - (edgeCfg.bottom ?? 0.05));
+
+    // In 2D Matrix mode: tap edges
     if (zipContent && zipContent.classList.contains('gallery-2d-mode')) {
       const active = getActiveMediaItem();
       if (active && active.folderRow) {
-        const x = e.clientX;
-        const w = window.innerWidth;
-        if (x < w * 0.2) {
-          navigateCarousel(active.folderRow, 'left', active.totalFiles);
+        const hasMultipleFiles = active.totalFiles > 1;
+        const isLeft = x < leftThreshold;
+        const isRight = x > rightThreshold;
+        const isTop = y < topThreshold;
+        const isBottom = y > bottomThreshold;
+
+        // When there are 2 or more files, left and right edges have priority on the corners
+        if (hasMultipleFiles && (isLeft || isRight)) {
+          if (isLeft) {
+            navigateCarousel(active.folderRow, 'left', active.totalFiles);
+            return;
+          }
+          if (isRight) {
+            navigateCarousel(active.folderRow, 'right', active.totalFiles);
+            return;
+          }
+        }
+
+        if (isTop) {
+          navigateFolder('up');
           return;
-        } else if (x > w * 0.8) {
-          navigateCarousel(active.folderRow, 'right', active.totalFiles);
+        }
+        if (isBottom) {
+          navigateFolder('down');
+          return;
+        }
+
+        if (isLeft) {
+          if (hasMultipleFiles) {
+            navigateCarousel(active.folderRow, 'left', active.totalFiles);
+          } else if (active.totalFolders > 1) {
+            navigateFolder('up');
+          }
+          return;
+        }
+        if (isRight) {
+          if (hasMultipleFiles) {
+            navigateCarousel(active.folderRow, 'right', active.totalFiles);
+          } else if (active.totalFolders > 1) {
+            navigateFolder('down');
+          }
           return;
         }
       }
@@ -561,15 +614,13 @@ if (zipViewer) {
       return;
     }
 
-    const x = e.clientX;
-    const w = window.innerWidth;
     const count = parseInt(zipContent?.dataset?.mediaCount || "0", 10) || state.currentZipObjectUrls.length;
 
     if (count > 1) {
-      if (x < w * 0.2) {
+      if (x < leftThreshold) {
         navigateCarousel(zipContent, 'left', count);
         return;
-      } else if (x > w * 0.8) {
+      } else if (x > rightThreshold) {
         navigateCarousel(zipContent, 'right', count);
         return;
       }
@@ -630,3 +681,4 @@ if (zipContent) {
 }
 
 initGestures();
+initEdgeVisualizer();
