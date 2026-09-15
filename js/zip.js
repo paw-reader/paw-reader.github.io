@@ -249,7 +249,7 @@ export function getActiveMediaItem() {
       fileIdx: realIdx,
       totalFiles: count,
       folderName: activeRow.dataset.folderName || "",
-      folderPath: activeRow.dataset.folderPath || activeRow.dataset.folderName || "",
+      folderPath: activeRow.dataset.folderPath ?? activeRow.dataset.folderName ?? "",
       filename: activeItem?.dataset?.filename || ""
     };
   }
@@ -274,7 +274,7 @@ export function getActiveMediaItem() {
     fileIdx: realIdx,
     totalFiles: count,
     folderName: zipTitle?.textContent || "",
-    folderPath: activeItem.dataset.folder || zipTitle?.textContent || "",
+    folderPath: activeItem.dataset.folder ?? zipTitle?.textContent ?? "",
     filename: activeItem?.dataset.filename || ""
   };
 }
@@ -521,7 +521,7 @@ export function openZipNavDropdown(btn, seg, active) {
   const currentActive = getActiveMediaItem() || active;
 
   const allFolders = rows.map((row) => {
-    const path = row.dataset.folderPath || row.dataset.folderName || "";
+    const path = row.dataset.folderPath ?? row.dataset.folderName ?? "";
     const name = row.dataset.folderName || path.split("/").pop() || path;
     const nonClones = row.querySelectorAll(".media-item:not([data-is-clone='true'])");
     const fileCount = nonClones.length;
@@ -568,12 +568,13 @@ export function openZipNavDropdown(btn, seg, active) {
     dropdown.appendChild(header);
   };
 
-  if (seg.type === "file") {
-    const items = Array.from(targetRow.querySelectorAll(".media-item:not([data-is-clone='true'])"));
-    appendHeader(`Files in ${seg.parentName || active.folderName || seg.name}`, items.length);
+  const appendFileItems = (row, active) => {
+    const items = Array.from(row.querySelectorAll(".media-item:not([data-is-clone='true'])"));
+    if (items.length === 0) return;
+    appendHeader(`Files in ${row.dataset.folderName || seg.name}`, items.length);
 
     items.forEach((item, fileIdx) => {
-      const isCurrent = fileIdx === active.fileIdx;
+      const isCurrent = fileIdx === active.fileIdx && row === active.folderRow;
       const filename = item.dataset.filename || `File ${fileIdx + 1}`;
       const sizeNum = parseInt(item.dataset.size, 10);
       const sizeStr = !isNaN(sizeNum) && sizeNum > 0 ? formatBytes(sizeNum) : `#${fileIdx + 1}`;
@@ -595,17 +596,25 @@ export function openZipNavDropdown(btn, seg, active) {
       itemBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         closeZipNavDropdown();
-        if (targetFolderIdx !== (getActiveMediaItem()?.folderIdx ?? -1)) {
-          jumpToFolder(targetFolderIdx);
+        const current = getActiveMediaItem();
+        if (!current || current.folderRow !== row) {
+          // The file lives in a different folder row — move vertically first.
+          jumpToFolder(parseInt(row.dataset.folderIdx, 10) || 0);
         }
-        const finalRow = rows[targetFolderIdx] || targetRow;
-        jumpToFile(finalRow, fileIdx);
+        jumpToFile(row, fileIdx);
       });
 
       dropdown.appendChild(itemBtn);
     });
+  };
+
+  if (seg.type === "file") {
+    appendFileItems(targetRow, active);
   } else {
-    let subfolders = getSubfoldersUnder(allFolders, seg.queryPrefix);
+    // Query subfolders relative to the segment's own folder path so a folder
+    // never lists itself, and always list the folder's own files too — a
+    // folder can hold both files and subfolders.
+    let subfolders = getSubfoldersUnder(allFolders, seg.folderPrefix);
     let headerTitle = `Folders in ${seg.parentName || seg.name}`;
 
     if (seg.type === "root" && subfolders.length === 1 && subfolders[0].name.toLowerCase() === seg.name.toLowerCase()) {
@@ -616,7 +625,7 @@ export function openZipNavDropdown(btn, seg, active) {
     if (subfolders.length > 0) {
       appendHeader(headerTitle, subfolders.length);
 
-      const activeFolderPath = active?.folderPath || active?.folderName || "";
+      const activeFolderPath = active?.folderPath ?? active?.folderName ?? "";
       subfolders.forEach((sub) => {
         const isCurrent = sub.name.toLowerCase() === seg.name.toLowerCase() ||
           activeFolderPath === sub.fullPrefix ||
@@ -649,43 +658,9 @@ export function openZipNavDropdown(btn, seg, active) {
 
         dropdown.appendChild(itemBtn);
       });
-    } else {
-      const items = Array.from(targetRow.querySelectorAll(".media-item:not([data-is-clone='true'])"));
-      appendHeader(`Files in ${seg.name}`, items.length);
-
-      items.forEach((item, fileIdx) => {
-        const isCurrent = fileIdx === active.fileIdx;
-        const filename = item.dataset.filename || `File ${fileIdx + 1}`;
-        const sizeNum = parseInt(item.dataset.size, 10);
-        const sizeStr = !isNaN(sizeNum) && sizeNum > 0 ? formatBytes(sizeNum) : `#${fileIdx + 1}`;
-
-        const itemBtn = document.createElement("button");
-        itemBtn.type = "button";
-        itemBtn.className = `zip-nav-dropdown-item ${isCurrent ? "current" : ""}`;
-        itemBtn.innerHTML = `
-          <div style="display:flex; align-items:center; gap:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0;">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.7; flex-shrink: 0; color: ${isCurrent ? "#58a6ff" : "inherit"};"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-            <span style="font-weight:${isCurrent ? "600" : "400"}; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(filename)}">${escapeHtml(filename)}</span>
-          </div>
-          <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-            <span style="color:#888; font-size:0.75rem; font-family:monospace;">${sizeStr}</span>
-            ${isCurrent ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ""}
-          </div>
-        `;
-
-        itemBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          closeZipNavDropdown();
-          if (targetFolderIdx !== (getActiveMediaItem()?.folderIdx ?? -1)) {
-            jumpToFolder(targetFolderIdx);
-          }
-          const finalRow = rows[targetFolderIdx] || targetRow;
-          jumpToFile(finalRow, fileIdx);
-        });
-
-        dropdown.appendChild(itemBtn);
-      });
     }
+
+    appendFileItems(targetRow, active);
   }
 
   const onDocClick = (e) => {
@@ -724,7 +699,7 @@ export function updateZipNavTabs(active) {
     return;
   }
 
-  const activePath = active.folderPath || active.folderName || "";
+  const activePath = active.folderPath ?? active.folderName ?? "";
   const rootTitle = zipContent.dataset.galleryTitle || zipTitle?.textContent || "Archive";
 
   tabs.classList.remove("hidden");
@@ -797,20 +772,13 @@ export function updateZipNavTabs(active) {
     btn.className = "zip-nav-tab-btn";
     btn.dataset.type = seg.type;
 
-    const isExpandable = seg.type !== "root";
-    if (isExpandable) {
-      btn.innerHTML = `<span class="zip-nav-tab-label" title="${escapeHtml(seg.name)}">${escapeHtml(seg.name)}</span> <span class="zip-nav-arrow">▾</span>`;
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openZipNavDropdown(btn, seg, getActiveMediaItem() || active);
-      });
-    } else {
-      btn.innerHTML = `<span class="zip-nav-tab-label" title="${escapeHtml(seg.name)}">${escapeHtml(seg.name)}</span>`;
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        jumpToFolder(0);
-      });
-    }
+    // Every crumb — including the archive root — expands to a dropdown so
+    // sibling folders stay reachable from anywhere in the path.
+    btn.innerHTML = `<span class="zip-nav-tab-label" title="${escapeHtml(seg.name)}">${escapeHtml(seg.name)}</span> <span class="zip-nav-arrow">▾</span>`;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openZipNavDropdown(btn, seg, getActiveMediaItem() || active);
+    });
 
     tabs.appendChild(btn);
 
@@ -993,12 +961,15 @@ export function alignFolderRowToFirstSlide(folderRow, filesCount) {
   const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (typeof window !== "undefined" && window.requestAnimationFrame ? window.requestAnimationFrame : ((fn) => setTimeout(fn, 0)));
   raf(() => {
     if (!folderRow.isConnected) return;
+    // Only re-settle if nothing else (e.g. a jumpToFile right after us)
+    // moved the row in the meantime — otherwise we'd stomp on that position.
+    const untouched = Math.abs(folderRow.scrollLeft - targetX) < 1;
     const resolvedSlide = folderRow.children[1] || nonClones[0];
     const resolvedX = (resolvedSlide && resolvedSlide.offsetLeft > 0)
       ? resolvedSlide.offsetLeft
       : (folderRow.clientWidth ? folderRow.clientWidth + 20 : targetX);
 
-    if (resolvedX > 0) {
+    if (resolvedX > 0 && untouched) {
       folderRow.scrollLeft = resolvedX;
       folderRow._restingScrollLeft = resolvedX;
     }
@@ -1075,7 +1046,7 @@ export function createFolderRowElement(group, folderIdx, options = {}) {
   const folderRow = document.createElement("div");
   folderRow.className = "zip-folder-row";
   folderRow.dataset.folderName = group.folderName;
-  folderRow.dataset.folderPath = group.folderPath || group.folderName;
+  folderRow.dataset.folderPath = group.folderPath ?? group.folderName;
   folderRow.dataset.folderIdx = String(folderIdx);
   folderRow.dataset.mediaCount = String(group.files.length);
 
@@ -1083,7 +1054,7 @@ export function createFolderRowElement(group, folderIdx, options = {}) {
     const slide = document.createElement("div");
     slide.className = "media-item";
     slide.dataset.filename = file.filename;
-    slide.dataset.folder = group.folderPath || group.folderName;
+    slide.dataset.folder = group.folderPath ?? group.folderName;
     slide.dataset.size = String(file.size || 0);
     slide.dataset.link = file.link || "";
     slide.dataset.fileIdx = String(fileIdx);
@@ -1195,16 +1166,16 @@ export function appendFolderGroupTo2DMatrix(group, options = {}) {
     return true;
   }
 
-  const targetPath = group.folderPath || group.folderName;
+  const targetPath = group.folderPath ?? group.folderName;
   const existingRows = Array.from(zipContent.querySelectorAll(".zip-folder-row"));
 
-  if (existingRows.some((r) => (r.dataset.folderPath || r.dataset.folderName) === targetPath)) {
+  if (existingRows.some((r) => (r.dataset.folderPath ?? r.dataset.folderName) === targetPath)) {
     return false;
   }
 
   let insertBeforeRow = null;
   for (const r of existingRows) {
-    const p = r.dataset.folderPath || r.dataset.folderName || "";
+    const p = r.dataset.folderPath ?? r.dataset.folderName ?? "";
     if (p.localeCompare(targetPath, undefined, { numeric: true, sensitivity: "base" }) > 0) {
       insertBeforeRow = r;
       break;
@@ -1396,7 +1367,9 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
     }
 
     const progressText = document.getElementById("zip-progress-text");
-    if (progressText) renderArchiveProgress(progressText, "Extracting files...", null, filename);    let zip = null;
+    if (progressText) renderArchiveProgress(progressText, "Extracting files...", null, filename);
+
+    let zip = null;
     let unzipEntries = null;
     if (window.unzipit) {
       const result = await window.unzipit.unzip(blob);
@@ -1437,12 +1410,10 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
       if (!imageExts.includes(ext) && !videoExts.includes(ext) && !audioExts.includes(ext)) return;
 
       const parts = normalizedPath.split("/").filter(Boolean);
-      let folderName = "";
-      if (parts.length > 1) {
-        folderName = parts.slice(0, -1).join("/");
-      } else {
-        folderName = filename.replace(/\.zip$/i, "") || "Root";
-      }
+      // Files at the zip root get their own group keyed by "" so they can
+      // never merge into a real top-level folder that happens to share the
+      // archive's name.
+      const folderName = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
 
       if (!folderMap.has(folderName)) {
         folderMap.set(folderName, []);
@@ -1468,12 +1439,17 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
       a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
     );
 
+    // The zip-root group (key "") displays as the archive title, unless a real
+    // folder already claims that name.
+    const cleanTitle = filename.replace(/\.zip$/i, "") || filename;
+    const rootDisplayName = folderMap.has(cleanTitle) ? "(root)" : cleanTitle;
+
     const folderGroups = folderNames.map((folderName) => {
       const files = folderMap.get(folderName);
       files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
 
       return {
-        folderName: folderName.split("/").pop() || folderName,
+        folderName: folderName === "" ? rootDisplayName : (folderName.split("/").pop() || folderName),
         folderPath: folderName,
         files: files.map((f) => ({
           filename: f.name,
@@ -1720,7 +1696,6 @@ export async function openZipGallery(zipUrl, filename, cachedBlob = null, post =
       };
     });
 
-    const cleanTitle = filename.replace(/\.zip$/i, "") || filename;
     render2DMatrixGallery(folderGroups, { galleryTitle: cleanTitle, signal });
 
     if (cachedBlob) {
